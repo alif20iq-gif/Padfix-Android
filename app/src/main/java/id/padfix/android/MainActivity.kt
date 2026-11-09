@@ -101,7 +101,7 @@ class MainActivity : Activity() {
                 "cp ${shellQuote(html.absolutePath)} /data/local/tmp/padfix_index.html && " +
                 "chmod 755 /data/local/tmp/padfix && " +
                 "exec /data/local/tmp/padfix -w /data/local/tmp/padfix_index.html"
-            backend = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+            backend = invokeShizukuProcess(arrayOf("sh", "-c", command))
             dashboardLoaded = false
             setStatus("Backend berjalan. Menunggu alamat dashboard…")
             val runningProcess = backend!!
@@ -135,13 +135,26 @@ class MainActivity : Activity() {
 
     private fun stopBackend() {
         try {
-            Shizuku.newProcess(arrayOf("sh", "-c", "pkill -x padfix 2>/dev/null || true"), null, null)
+            invokeShizukuProcess(arrayOf("sh", "-c", "pkill -x padfix 2>/dev/null || true"))
             backend?.destroy()
         } catch (_: Exception) {
         }
         backend = null
         web.loadUrl("about:blank")
         setStatus("Perintah berhenti dikirim.")
+    }
+
+    // Shizuku API 13.1.5 keeps the legacy newProcess method private.
+    // Invoke that legacy bridge reflectively until the app is migrated to UserService/AIDL.
+    private fun invokeShizukuProcess(command: Array<String>): Process {
+        val method = Shizuku::class.java.getDeclaredMethod(
+            "newProcess",
+            Array<String>::class.java,
+            Array<String>::class.java,
+            String::class.java
+        )
+        method.isAccessible = true
+        return method.invoke(null, command, null, null) as Process
     }
 
     private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
