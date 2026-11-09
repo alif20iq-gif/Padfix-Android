@@ -165,5 +165,5 @@ function deletePreset(){
  refreshPresetList();$('presetMsg').textContent='Preset dihapus.';
 }
 async function shot(){$('sm').textContent='Mengambil…';let ok=await post('/api/screenshot',{});if(!ok){$('sm').textContent='Gagal';return}let r=await fetch('/api/shot.png',{headers:H});$('im').src=URL.createObjectURL(await r.blob());$('sm').textContent='OK'}
-['sensL','sensR'].forEach((id,i)=>bindPad(id,'sens',i));['offL','offR'].forEach((id,i)=>bindPad(id,'offset',i));animateMonitor();refresh();refreshPresetList();setInterval(refresh,50);
+['sensL','sensR'].forEach((id,i)=>bindPad(id,'sens',i));['offL','offR'].forEach((id,i)=>bindPad(id,'offset',i));animateMonitor();refresh();refreshPresetList();setInterval(refresh,1000/60);
 </script></body></html>
