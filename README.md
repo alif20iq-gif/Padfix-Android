@@ -1,17 +1,21 @@
 # Padfix Android
 
-Android application project for Padfix gamepad calibration and input remapping.
+Android wrapper for the Padfix V10 native input backend and V11 dashboard.
 
-## Current source baseline
+## Included
 
-- Padfix V10 native C backend: analog correction for ABS_X/ABS_Y/ABS_RX/ABS_RY and ABS_HAT0X/ABS_HAT0Y to BTN_DPAD_* conversion.
-- Dashboard HTML baseline: local web dashboard for calibration, range, offset, button remapping, and status monitoring.
-- V11 design notes: dashboard presets and Android joystick-event interception are documented in the source notes.
+- `native/padfix.c`: C backend for analog correction and D-pad HAT-to-key conversion.
+- `app/src/main/assets/index.html`: V11 dashboard with local preset save/load/delete.
+- `app/src/main/java/id/padfix/android/MainActivity.kt`: WebView wrapper, joystick motion interception, and Shizuku shell launcher.
+- `.github/workflows/android.yml`: builds an arm64 native executable and debug APK, then uploads the APK as a workflow artifact.
 
-## Android app work
+## Build
 
-The Android wrapper (Kotlin/WebView), Shizuku integration, native ARM64 build, and CI APK packaging are not yet complete. Device permissions for `/dev/input` and `/dev/uinput` must be verified on the target phone; a successful build alone does not prove runtime compatibility.
+Pushes to `main` start the GitHub Actions workflow. The build compiles the native backend for arm64, then runs `gradle assembleDebug`. Download the `Padfix-Android-debug` artifact from the completed workflow run.
 
-## Build status
+## Runtime requirements and limitations
 
-Not yet built or tested as an APK.
+- Shizuku must be running and Padfix must be granted Shizuku permission.
+- The backend needs working access to `/dev/input` and `/dev/uinput`; this varies by Android build/device and is not guaranteed by Shizuku alone.
+- The controller name match in the current C backend defaults to `Pro Controller`.
+- This first APK integration pass has not yet been tested on the target phone or with a physical controller. A successful CI build does not prove the kernel input permissions or virtual gamepad work at runtime.
