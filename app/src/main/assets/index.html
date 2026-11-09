@@ -81,7 +81,19 @@ function bindPad(id,kind,stick){
 }
 function drawSettings(){for(let s=0;s<2;s++){drawPad(s?'sensR':'sensL',sensPoint(s),'sens');drawPad(s?'offR':'offL',offPoint(s),'offset');let i=s*4,j=s*2;$('sensTxt'+(s?'R':'L')).textContent=`Kiri ${state.sens[i]}% · Kanan ${state.sens[i+1]}% · Atas ${state.sens[i+2]}% · Bawah ${state.sens[i+3]}% (power: ${Math.round(10000/state.sens[i]) / 100}× / ${Math.round(10000/state.sens[i+1]) / 100}× / ${Math.round(10000/state.sens[i+2]) / 100}× / ${Math.round(10000/state.sens[i+3]) / 100}×)`;$('offTxt'+(s?'R':'L')).textContent=`Offset X: ${state.offset[j]} · Y: ${state.offset[j+1]}`;$('sv'+(s?'R':'L')).textContent='Power 0,5×–2×';$('ov'+(s?'R':'L')).textContent='±4500'}}
 function drawMonitor(id,xv,yv){drawPad(id,{x:Math.max(-1,Math.min(1,xv/32767)),y:Math.max(-1,Math.min(1,yv/32767))},'monitor')}
-async function refresh(){try{let r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){$('st').textContent='TOKEN?';return}let d=await r.json();$('st').textContent=d.connected?'TERSAMBUNG':'TERLEPAS';$('nm').textContent=d.name+(d.connected&&!d.grabbed?' · PERINGATAN: input belum berhasil dikunci dari browser':'');$('cal').textContent=d.calibrated?'SELESAI':'LEPAS STIK…';$('lk').textContent=d.last_key||'—';monitorTarget=d.fixed.slice();$('lv').textContent=d.fixed[0]+' , '+d.fixed[1];$('rv').textContent=d.fixed[2]+' , '+d.fixed[3];drawMonitor('monL',monitorTarget[0],monitorTarget[1]);drawMonitor('monR',monitorTarget[2],monitorTarget[3]);$('lm').textContent=`Raw X/Y: ${d.raw[0]} / ${d.raw[1]} · Pusat: ${d.center[0]} / ${d.center[1]} · DZ: ${d.deadzone[0]} / ${d.deadzone[1]}`;$('rm').textContent=`Raw X/Y: ${d.raw[2]} / ${d.raw[3]} · Pusat: ${d.center[2]} / ${d.center[3]} · DZ: ${d.deadzone[2]} / ${d.deadzone[3]}`;$('ax').textContent='Offset aktif: '+d.offset.join(' / ');if(!built){built=true;state.sens=d.sens;state.offset=d.offset||[0,0,0,0];state.margin=d.margin;state.min_dz=d.min_dz;state.kp=d.kp;$('margin').value=d.margin;$('minz').value=d.min_dz;$('kp').value=d.kp;[['margin','mo'],['minz','zo'],['kp','ko']].forEach(([a,b])=>{$(b).textContent=$(a).value;$(a).oninput=()=>$(b).textContent=$(a).value});drawSettings()}}catch(e){$('st').textContent='OFFLINE'}}
+let refreshing=false,monitorTarget=[0,0,0,0],monitorCurrent=[0,0,0,0];
+function animateMonitor(){
+ let moving=false;
+ for(let i=0;i<4;i++){
+  const delta=monitorTarget[i]-monitorCurrent[i];
+  if(Math.abs(delta)>0.35){monitorCurrent[i]+=delta*0.38;moving=true}
+  else monitorCurrent[i]=monitorTarget[i];
+ }
+ drawMonitor('monL',monitorCurrent[0],monitorCurrent[1]);
+ drawMonitor('monR',monitorCurrent[2],monitorCurrent[3]);
+ requestAnimationFrame(animateMonitor);
+}
+async function refresh(){if(refreshing)return;refreshing=true;try{let r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){$('st').textContent='TOKEN?';return}let d=await r.json();$('st').textContent=d.connected?'TERSAMBUNG':'TERLEPAS';$('nm').textContent=d.name+(d.connected&&!d.grabbed?' · PERINGATAN: input belum berhasil dikunci dari browser':'');$('cal').textContent=d.calibrated?'SELESAI':'LEPAS STIK…';$('lk').textContent=d.last_key||'—';monitorTarget=d.fixed.slice();$('lv').textContent=d.fixed[0]+' , '+d.fixed[1];$('rv').textContent=d.fixed[2]+' , '+d.fixed[3];$('lm').textContent=`Raw X/Y: ${d.raw[0]} / ${d.raw[1]} · Pusat: ${d.center[0]} / ${d.center[1]} · DZ: ${d.deadzone[0]} / ${d.deadzone[1]}`;$('rm').textContent=`Raw X/Y: ${d.raw[2]} / ${d.raw[3]} · Pusat: ${d.center[2]} / ${d.center[3]} · DZ: ${d.deadzone[2]} / ${d.deadzone[3]}`;$('ax').textContent='Offset aktif: '+d.offset.join(' / ');if(!built){built=true;state.sens=d.sens;state.offset=d.offset||[0,0,0,0];state.margin=d.margin;state.min_dz=d.min_dz;state.kp=d.kp;$('margin').value=d.margin;$('minz').value=d.min_dz;$('kp').value=d.kp;[['margin','mo'],['minz','zo'],['kp','ko']].forEach(([a,b])=>{$(b).textContent=$(a).value;$(a).oninput=()=>$(b).textContent=$(a).value});drawSettings()}}catch(e){$('st').textContent='OFFLINE'}finally{refreshing=false}}
 async function applySens(stick){
  const key=stick===0?'sensL':'sensR',base=stick*4;
  const ok=await post('/api/config',{[key]:state.sens.slice(base,base+4)});
@@ -153,5 +165,5 @@ function deletePreset(){
  refreshPresetList();$('presetMsg').textContent='Preset dihapus.';
 }
 async function shot(){$('sm').textContent='Mengambil…';let ok=await post('/api/screenshot',{});if(!ok){$('sm').textContent='Gagal';return}let r=await fetch('/api/shot.png',{headers:H});$('im').src=URL.createObjectURL(await r.blob());$('sm').textContent='OK'}
-['sensL','sensR'].forEach((id,i)=>bindPad(id,'sens',i));['offL','offR'].forEach((id,i)=>bindPad(id,'offset',i));refresh();refreshPresetList();setInterval(refresh,150);
+['sensL','sensR'].forEach((id,i)=>bindPad(id,'sens',i));['offL','offR'].forEach((id,i)=>bindPad(id,'offset',i));animateMonitor();refresh();refreshPresetList();setInterval(refresh,50);
 </script></body></html>
