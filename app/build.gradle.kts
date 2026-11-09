@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "id.padfix.android"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 28
         versionCode = 1
         versionName = "1.0.0"
