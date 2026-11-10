@@ -2,7 +2,7 @@ name: Build Padfix Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, experimental-circular-20000]
   workflow_dispatch:
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
         run: |
           mkdir -p app/src/main/assets
           "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android23-clang" \
-            -O2 -fPIE -pie -pthread native/padfix.c \
+            -O2 -fPIE -pie -pthread native/padfix.c -lm \
             -o app/src/main/assets/padfix
           file app/src/main/assets/padfix
 
