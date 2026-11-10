@@ -52,9 +52,9 @@ static const char *config_path = "/data/local/tmp/padfix.conf";
 static void save_config(void) {
     char tmp[96]; snprintf(tmp,sizeof tmp,"%s.tmp",config_path);
     FILE *f=fopen(tmp,"w"); if(!f)return;
-    fprintf(f,"%d %d %d\\n",cfg_margin,cfg_min_dz,cfg_kp);
-    for(int i=0;i<8;i++)fprintf(f,"%d%c",sens[i],i==7?'\\n':' ');
-    for(int i=0;i<4;i++)fprintf(f,"%d%c",cfg_offset[i],i==3?'\\n':' ');
+    fprintf(f,"%d %d %d\n",cfg_margin,cfg_min_dz,cfg_kp);
+    for(int i=0;i<8;i++)fprintf(f,"%d%c",sens[i],i==7?'\n':' ');
+    for(int i=0;i<4;i++)fprintf(f,"%d%c",cfg_offset[i],i==3?'\n':' ');
     if(fclose(f)==0){if(rename(tmp,config_path)!=0)unlink(tmp);}else unlink(tmp);
 }
 static void load_config(void) {
@@ -67,7 +67,7 @@ static void load_config(void) {
         cfg_margin=m;cfg_min_dz=z;cfg_kp=k;
         for(int i=0;i<8;i++)sens[i]=s[i];
         for(int i=0;i<4;i++)cfg_offset[i]=o[i];
-        printf("Konfigurasi terakhir dipulihkan.\\n");
+        printf("Konfigurasi terakhir dipulihkan.\n");
     }
 }
 
