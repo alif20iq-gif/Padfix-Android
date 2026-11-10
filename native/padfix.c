@@ -36,6 +36,8 @@ static volatile int cfg_margin = 600, cfg_min_dz = 1500, cfg_kp = 0;
 static volatile int sens[8] = {100,100,100,100,100,100,100,100};
 // Offset manual per axis: koreksi titik tengah hasil kalibrasi.
 static volatile int cfg_offset[4] = {0,0,0,0};
+static volatile int dir_min[16] = {100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100};
+static volatile int dir_max[16] = {100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100};
 static volatile int live_raw[4], live_fixed[4], live_center[4], live_dz[4];
 static volatile int live_cal = 0, live_conn = 0, live_grab = 0, want_recal = 0, last_key = 0;
 static unsigned char have_key[KEY_MAX + 1];
@@ -55,18 +57,23 @@ static void save_config(void) {
     fprintf(f,"%d %d %d\n",cfg_margin,cfg_min_dz,cfg_kp);
     for(int i=0;i<8;i++)fprintf(f,"%d%c",sens[i],i==7?'\n':' ');
     for(int i=0;i<4;i++)fprintf(f,"%d%c",cfg_offset[i],i==3?'\n':' ');
+    for(int i=0;i<16;i++)fprintf(f,"%d%c",dir_min[i],i==15?'\n':' ');
+    for(int i=0;i<16;i++)fprintf(f,"%d%c",dir_max[i],i==15?'\n':' ');
     if(fclose(f)==0){if(rename(tmp,config_path)!=0)unlink(tmp);}else unlink(tmp);
 }
 static void load_config(void) {
     FILE *f=fopen(config_path,"r");if(!f)return;
-    int m,z,k,s[8],o[4],ok=fscanf(f,"%d%d%d",&m,&z,&k)==3;
+    int m,z,k,s[8],o[4],dmin[16],dmax[16],ok=fscanf(f,"%d%d%d",&m,&z,&k)==3;
     for(int i=0;ok&&i<8;i++)ok=fscanf(f,"%d",&s[i])==1&&s[i]>=50&&s[i]<=200;
     for(int i=0;ok&&i<4;i++)ok=fscanf(f,"%d",&o[i])==1&&o[i]>=-30000&&o[i]<=30000;
+    int have_dir=1; for(int i=0;i<16;i++) if(fscanf(f,"%d",&dmin[i])!=1||dmin[i]<50||dmin[i]>200) have_dir=0;
+    for(int i=0;i<16;i++) if(have_dir&&(fscanf(f,"%d",&dmax[i])!=1||dmax[i]<50||dmax[i]>200)) have_dir=0;
     fclose(f);
     if(ok&&m>=0&&m<=30000&&z>=0&&z<=30000&&k>=0&&k<=100){
         cfg_margin=m;cfg_min_dz=z;cfg_kp=k;
         for(int i=0;i<8;i++)sens[i]=s[i];
         for(int i=0;i<4;i++)cfg_offset[i]=o[i];
+        if(have_dir){for(int i=0;i<16;i++){dir_min[i]=dmin[i];dir_max[i]=dmax[i];}}
         printf("Konfigurasi terakhir dipulihkan.\n");
     }
 }
@@ -260,6 +267,15 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                         long so = (long)off * 100 / (pct > 0 ? pct : 100);
                         if (so > half[i]) so = half[i];
                         if (so < -half[i]) so = -half[i];
+                        int ox=(i==0||i==2)?(int)so:live_fixed[i-1];
+                        int oy=(i==1||i==3)?(int)so:live_fixed[i+1];
+                        int ax=ox<0?-ox:ox, ay=oy<0?-oy:oy, dir;
+                        if(ax*2<ay) dir=oy<0?0:1; else if(ay*2<ax) dir=ox<0?2:3;
+                        else if(ox>=0&&oy<0) dir=4; else if(ox<0&&oy<0) dir=5;
+                        else if(ox>=0&&oy>=0) dir=6; else dir=7;
+                        int di=(i<2?0:8)+dir, radius=ax>ay?ax:ay; if(radius>half[i])radius=half[i];
+                        int power=dir_min[di]+(int)((long)(dir_max[di]-dir_min[di])*radius/(half[i]>0?half[i]:1));
+                        so=so*power/100; if(so>half[i])so=half[i]; if(so< -half[i])so= -half[i];
                         out = oc[i] + (int)so;
                         live_dz[i] = dz;
                     }
@@ -418,12 +434,16 @@ static void handle(int c) {
         if (json_arr(body, "offset", off, 4)) { int ok = 1; for (int i = 0; i < 4; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 4; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetL", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetR", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i + 2] = off[i]; }
+        int dm[16],dx[16];
+        if(json_arr(body,"dirMin",dm,16)){int ok=1;for(int i=0;i<16;i++)if(dm[i]<50||dm[i]>200)ok=0;if(ok)for(int i=0;i<16;i++)dir_min[i]=dm[i];}
+        if(json_arr(body,"dirMax",dx,16)){int ok=1;for(int i=0;i<16;i++)if(dx[i]<50||dx[i]>200)ok=0;if(ok)for(int i=0;i<16;i++)dir_max[i]=dx[i];}
         save_config();
         jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/reset")) {
         cfg_margin = 600; cfg_min_dz = 1500; cfg_kp = 0;
         for (int i = 0; i < 8; i++) sens[i] = 100;
         for (int i = 0; i < 4; i++) cfg_offset[i] = 0;
+        for (int i = 0; i < 16; i++) dir_min[i] = dir_max[i] = 100;
         save_config();
         jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/recal")) { want_recal = 1; jreply(c, "200 OK", "{\"ok\":true}");
