@@ -126,7 +126,8 @@ function renderButtonCheck(d){
  const host=$('buttonCheck');if(!host)return;
  const labels={304:'A / Cross',305:'B / Circle',307:'X / Square',308:'Y / Triangle',310:'L1',311:'R1',312:'L2',313:'R2',314:'Select',315:'Start',316:'Home',317:'L3',318:'R3',544:'D-pad atas',545:'D-pad bawah',546:'D-pad kiri',547:'D-pad kanan',309:'Capture'};
  const codes=Array.isArray(d.buttons)?d.buttons:[];
- host.innerHTML=codes.map(code=>'<div class="stickbox" style="padding:8px"><b>'+(labels[code]||('Tombol '+code))+'</b><div class="s">Kode '+code+'</div></div>').join('')||'Tidak ada daftar tombol dari controller.';
+ const pressed=new Set(Array.isArray(d.pressed)?d.pressed:[]);
+ host.innerHTML=codes.map(code=>'<div class="stickbox" style="padding:8px;border-color:'+(pressed.has(code)?'#69e0a1':'#293653')+'"><b>'+(labels[code]||('Tombol '+code))+'</b><div class="s">Kode '+code+'</div><div class="s" style="color:'+(pressed.has(code)?'#69e0a1':'#aebbd3')+'">'+(pressed.has(code)?'● DITEKAN':'○ dilepas')+'</div></div>').join('')||'Tidak ada tombol EV_KEY yang diekspos controller.';
 }
 async function resetStick(stick){
  const label=stick===0?'kiri':'kanan',base=stick*4,off=stick*2;
