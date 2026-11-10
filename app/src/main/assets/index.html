@@ -146,7 +146,9 @@ async function resetStick(stick){
  const label=stick===0?'kiri':'kanan',base=stick*4,off=stick*2;
  if(!confirm('Reset jangkauan dan offset analog '+label+'?'))return;
  state.sens.splice(base,4,100,100,100,100);state.offset.splice(off,2,0,0);
+ for(let d=stick*8;d<stick*8+8;d++){state.dirMin[d]=100;state.dirMax[d]=100}
  const body=stick===0?{sensL:[100,100,100,100],offsetL:[0,0]}:{sensR:[100,100,100,100],offsetR:[0,0]};
+ body.dirMin=state.dirMin;body.dirMax=state.dirMax;
  const ok=await post('/api/config',body);if(!ok)return;
  saveAutoConfig();drawSettings();$('msg').textContent='Analog '+label+' direset ✓';
 }
