@@ -378,7 +378,7 @@ static void send_status(int c) {
       live_center[0], live_center[1], live_center[2], live_center[3], live_dz[0], live_dz[1], live_dz[2], live_dz[3]);
     int first = 1;
     for (int k = 1; k <= KEY_MAX; k++) if (have_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
-    A("],\\"pressed\\":["); first = 1;
+    A("],\"pressed\":["); first = 1;
     for (int k = 1; k <= KEY_MAX; k++) if (pressed_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
     A("]}");
     #undef A
