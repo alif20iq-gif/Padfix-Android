@@ -497,6 +497,7 @@ int main(int argc, char **argv) {
     pthread_t th;
     if (pthread_create(&th, NULL, web_main, NULL) != 0) { fprintf(stderr, "Gagal membuat thread web.\n"); return 1; }
     printf("Dashboard: http://127.0.0.1:%d/?t=%s\n", PORT, token);
+    fflush(stdout); // MainActivity reads this line from the startup log to open the tokenized URL.
     if (demo) { while (running) sleep(1); pthread_join(th, NULL); return 0; }
     int announced = 0;
     while (running) {
