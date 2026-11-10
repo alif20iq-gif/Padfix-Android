@@ -419,6 +419,10 @@ static void send_status(int c) {
     A("],\"offset\":[%d,%d,%d,%d],\"raw\":[%d,%d,%d,%d],\"fixed\":[%d,%d,%d,%d],\"center\":[%d,%d,%d,%d],\"deadzone\":[%d,%d,%d,%d],\"buttons\":[",
       cfg_offset[0], cfg_offset[1], cfg_offset[2], cfg_offset[3], live_raw[0], live_raw[1], live_raw[2], live_raw[3], live_fixed[0], live_fixed[1], live_fixed[2], live_fixed[3],
       live_center[0], live_center[1], live_center[2], live_center[3], live_dz[0], live_dz[1], live_dz[2], live_dz[3]);
+    A(",\"circular_enabled\":[%d,%d],\"circular_target\":[%d,%d],\"circular_center\":[%d,%d,%d,%d],\"circular_points\":[",
+      circular_enabled[0],circular_enabled[1],circular_target[0],circular_target[1],circular_center[0],circular_center[1],circular_center[2],circular_center[3]);
+    for(int i=0;i<16;i++)A("%s%d",i?",":"",circular_points[i]);
+    A("]");
     int first = 1;
     for (int k = 1; k <= KEY_MAX; k++) if (have_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
     A("],\"pressed\":["); first = 1;
@@ -472,6 +476,10 @@ static void handle(int c) {
         cfg_margin = 600; cfg_min_dz = 1500; cfg_kp = 0;
         for (int i = 0; i < 8; i++) sens[i] = 100;
         for (int i = 0; i < 4; i++) cfg_offset[i] = 0;
+        for(int i=0;i<2;i++){circular_enabled[i]=0;circular_target[i]=20000;}
+        for(int i=0;i<4;i++)circular_center[i]=0;
+        const int defaults[16]={0,-9842,9842,0,0,22574,-22350,0,0,-9842,9842,0,0,22574,-22350,0};
+        for(int i=0;i<16;i++)circular_points[i]=defaults[i];
         save_config();
         jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/recal")) { want_recal = 1; jreply(c, "200 OK", "{\"ok\":true}");
