@@ -161,7 +161,7 @@ static int fix(int v, int c, int dz, int lo, int hi, int half, int kp) {
 // ---------------- kalibrasi yang bertahan antar reconnect ----------------
 static int have_cal = 0, cen[4], noise[4];
 
-static void circular_map(int stick,int x,int y,int *ox,int *oy) {
+static void circular_map(int stick,int x,int y,int max_radius,int *ox,int *oy) {
     int base=stick*8;
     double a=atan2((double)y,(double)x); if(a<0)a+=2.0*M_PI;
     const int order[4]={1,2,3,0};
@@ -171,8 +171,13 @@ static void circular_map(int stick,int x,int y,int *ox,int *oy) {
     double r1=hypot((double)circular_points[base+p1*2],(double)circular_points[base+p1*2+1]);
     double r2=hypot((double)circular_points[base+p2*2],(double)circular_points[base+p2*2+1]);
     double boundary=r1+(r2-r1)*frac; if(boundary<1.0)boundary=1.0;
-    double scale=(double)circular_target[stick]/boundary;
-    double vx=x*scale,vy=y*scale,r=hypot(vx,vy),target=circular_target[stick];
+    /* Batasi radius secara radial ke rentang terkecil kedua sumbu.
+       Jangan clamp X/Y terpisah karena itu mengubah lingkaran menjadi persegi. */
+    double target=(double)circular_target[stick];
+    if(max_radius>0 && target>max_radius)target=max_radius;
+    if(target<1.0)target=1.0;
+    double scale=target/boundary;
+    double vx=x*scale,vy=y*scale,r=hypot(vx,vy);
     if(r>target){vx*=target/r;vy*=target/r;}
     *ox=(int)lrint(vx);*oy=(int)lrint(vy);
 }
@@ -294,9 +299,10 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                         if(circular_enabled[stick]) {
                             int cx=circular_center[stick*2],cy=circular_center[stick*2+1];
                             int vx=live_raw[stick*2]-cx,vy=live_raw[stick*2+1]-cy,mx=0,my=0;
-                            circular_map(stick,vx,vy,&mx,&my);
+                            int circular_limit=half[stick*2];
+                            if(half[stick*2+1]<circular_limit)circular_limit=half[stick*2+1];
+                            circular_map(stick,vx,vy,circular_limit,&mx,&my);
                             int mapped=axis?my:mx;
-                            if(mapped>half[i])mapped=half[i];if(mapped< -half[i])mapped=-half[i];
                             out=oc[i]+mapped;live_fixed[i]=mapped;live_dz[i]=dz;
                             if(out==last[i])continue;
                             last[i]=out;e.value=out;
