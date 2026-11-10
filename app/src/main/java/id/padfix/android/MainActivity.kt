@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -146,6 +147,32 @@ class MainActivity : Activity() {
 
     private fun shellQuote(value: String) = "'" + value.replace("'", "'\\''") + "'"
     private fun setStatus(message: String) { if (::status.isInitialized) status.text = message }
+
+    // Tombol dari controller hanya untuk gamepad/Padfix, jangan biarkan WebView
+    // atau Activity menafsirkannya sebagai navigasi/aksi keluar aplikasi.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val gamepadSource = event.isFromSource(InputDevice.SOURCE_GAMEPAD) ||
+            event.isFromSource(InputDevice.SOURCE_DPAD) ||
+            event.isFromSource(InputDevice.SOURCE_JOYSTICK)
+        if (gamepadSource) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_B,
+                KeyEvent.KEYCODE_BUTTON_C, KeyEvent.KEYCODE_BUTTON_X,
+                KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_BUTTON_Z,
+                KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1,
+                KeyEvent.KEYCODE_BUTTON_L2, KeyEvent.KEYCODE_BUTTON_R2,
+                KeyEvent.KEYCODE_BUTTON_THUMBL, KeyEvent.KEYCODE_BUTTON_THUMBR,
+                KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_BUTTON_SELECT,
+                KeyEvent.KEYCODE_BUTTON_MODE, KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_HOME, KeyEvent.KEYCODE_BACK -> return true
+            }
+            // Key controller lain juga jangan diteruskan ke WebView.
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_MOVE && event.isFromSource(InputDevice.SOURCE_JOYSTICK)) return true
