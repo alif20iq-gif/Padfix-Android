@@ -27,7 +27,7 @@
 <div class="row"><button type="button" onclick="applyGeneral()">Terapkan margin / DZ / sisi terpotong</button><button type="button" class="d" onclick="resetAll()">Reset semua pengaturan</button><span id="msg" class="s"></span></div></section>
 <section class="card"><h3 class="sectiontitle">Pengecekan tombol fisik</h3><p class="s">Daftar tombol yang didukung controller. Tekan tombol fisik untuk melihat kode tombol terakhir di panel Gamepad.</p><div id="buttonCheck" class="grid s">Menunggu data…</div></section><section class="card"><h3>Screenshot Android</h3><button onclick="shot()">Ambil screenshot</button> <span id="sm" class="s"></span><div><img id="im"></div></section>
 </main>
-<div id="calModal" class="modal" role="dialog" aria-modal="true" aria-label="Kalibrasi analog"><div class="modalbox"><div class="modalhead"><h2 style="margin:0">Kalibrasi Analog 8 Arah</h2><button type="button" onclick="closeCalibration()">Tutup ✕</button></div><p class="s">Atur power minimum dan maksimum untuk setiap arah. Geser Wheel atau ketik angka 50–200%. Nilai minimum berlaku saat stik mulai digerakkan dan maksimum saat mendekati ujung.</p><div class="row"><b>Analog</b><select id="calStick" onchange="syncCalInputs()"><option value="0">Kiri</option><option value="1">Kanan</option><option value="2">Keduanya</option></select></div><div class="row"><b>Arah</b><select id="calDir" onchange="syncCalInputs()"><option value="0">Atas</option><option value="1">Bawah</option><option value="2">Kiri</option><option value="3">Kanan</option><option value="4">Atas kanan</option><option value="5">Atas kiri</option><option value="6">Bawah kanan</option><option value="7">Bawah kiri</option></select></div><div class="valuegrid"><div class="valuecard"><b>Power minimum</b><input id="calMinWheel" class="wheel" type="range" min="50" max="200" step="1" oninput="changeCalValue('min',this.value)"><input id="calMinNum" type="number" min="50" max="200" step="1" oninput="changeCalValue('min',this.value)"><span class="s">50–200%</span></div><div class="valuecard"><b>Power maksimum</b><input id="calMaxWheel" class="wheel" type="range" min="50" max="200" step="1" oninput="changeCalValue('max',this.value)"><input id="calMaxNum" type="number" min="50" max="200" step="1" oninput="changeCalValue('max',this.value)"><span class="s">50–200%</span></div></div><p id="calDirectionInfo" class="s"></p><div class="row"><button type="button" onclick="saveCalibration()">Simpan & Terapkan</button><button type="button" class="d" onclick="resetCalibrationDirection()">Reset arah ini</button><button type="button" class="d" onclick="resetCalibrationAll()">Reset semua</button></div><div id="calMsg" class="s" aria-live="polite"></div></div></div>
+<div id="calModal" class="modal" role="dialog" aria-modal="true" aria-label="Kalibrasi analog"><div class="modalbox" style="width:min(100%,760px)"><div class="modalhead"><h2 style="margin:0">Kalibrasi Jangkauan 8 Arah</h2><button type="button" onclick="closeCalibration()">Tutup ✕</button></div><p class="s">Pilih analog kiri, kanan, atau keduanya. Geser salah satu dari 8 wheel untuk mengatur respons arah itu. Perubahan langsung tersimpan dan diterapkan.</p><div class="row"><b>Analog</b><select id="calStick" onchange="syncCalInputs()"><option value="0">Kiri</option><option value="1">Kanan</option><option value="2">Keduanya</option></select></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px"><div class="stickbox"><b>Visual jangkauan</b><canvas id="calVisual" class="pad" width="320" height="320" style="width:100%;max-width:290px;margin:8px auto;display:block"></canvas><div id="calVisualInfo" class="hint">Titik menunjukkan jangkauan respons tiap arah.</div><div class="s">Lingkaran luar = batas analog. Titik = jarak respons yang diatur.</div></div><div class="stickbox"><b>Atur 8 arah</b><div id="calWheels" style="display:grid;grid-template-columns:1fr;gap:7px;margin-top:8px"></div></div></div><div class="row"><button type="button" class="d" onclick="resetCalibrationAll()">Reset semua arah</button><span id="calMsg" class="s" aria-live="polite">Perubahan diterapkan otomatis.</span></div></div></div>
 <script>
 const T=new URLSearchParams(location.search).get('t'),H={'X-Token':T,'Content-Type':'application/json'};const $=id=>document.getElementById(id);
 // Canvas joystick memakai Pointer Events + pointer capture dan touch-action:none secara lokal.
@@ -130,15 +130,49 @@ function readAutoConfig(){try{const p=JSON.parse(localStorage.getItem(AUTO_KEY)|
 function saveAutoConfig(){try{localStorage.setItem(AUTO_KEY,JSON.stringify(currentPreset()))}catch(e){}}
 async function applyAutoConfig(p){const body={sensL:p.sens.slice(0,4),sensR:p.sens.slice(4,8),offsetL:p.offset.slice(0,2),offsetR:p.offset.slice(2,4),margin:+p.margin,min_dz:+p.min_dz,kp:+p.kp,dirMin:p.dirMin||Array(16).fill(100),dirMax:p.dirMax||Array(16).fill(100)};await post('/api/config',body)}
 
-const CAL_DIRS=['Atas','Bawah','Kiri','Kanan','Atas kanan','Atas kiri','Bawah kanan','Bawah kiri'];
+const CAL_DIRS=['Atas','Atas kanan','Kanan','Bawah kanan','Bawah','Bawah kiri','Kiri','Atas kiri'];
+// Urutan tampilan searah jarum jam dipetakan ke indeks native yang sudah ada.
+const CAL_NATIVE=[0,4,3,6,1,7,2,5],CAL_ARROWS=['↑','↗','→','↘','↓','↙','←','↖'];
+let calSaveTimer=null;
 function openCalibration(){$('calModal').classList.add('open');syncCalInputs()}
 function closeCalibration(){$('calModal').classList.remove('open')}
-function calIndices(){const st=+$('calStick').value,d=+$('calDir').value;return st===2?[d,8+d]:[st*8+d]}
-function syncCalInputs(){const ix=calIndices()[0];$('calMinWheel').value=state.dirMin[ix];$('calMinNum').value=state.dirMin[ix];$('calMaxWheel').value=state.dirMax[ix];$('calMaxNum').value=state.dirMax[ix];$('calDirectionInfo').textContent=CAL_DIRS[+$('calDir').value]+' · minimum '+state.dirMin[ix]+'% · maksimum '+state.dirMax[ix]+'%'}
-function changeCalValue(which,value){let v=Math.max(50,Math.min(200,Math.round(Number(value)||50)));const ids=calIndices(),arr=which==='min'?state.dirMin:state.dirMax;ids.forEach(i=>arr[i]=v);$('cal'+(which==='min'?'Min':'Max')+'Wheel').value=v;$('cal'+(which==='min'?'Min':'Max')+'Num').value=v;const ix=ids[0];$('calDirectionInfo').textContent=CAL_DIRS[+$('calDir').value]+' · minimum '+state.dirMin[ix]+'% · maksimum '+state.dirMax[ix]+'%';saveAutoConfig()}
-async function saveCalibration(){const ok=await post('/api/config',{dirMin:state.dirMin,dirMax:state.dirMax});if(ok){saveAutoConfig();$('calMsg').textContent='Kalibrasi 8 arah tersimpan dan diterapkan ✓'}}
-function resetCalibrationDirection(){calIndices().forEach(i=>{state.dirMin[i]=100;state.dirMax[i]=100});syncCalInputs();saveCalibration()}
-async function resetCalibrationAll(){if(!confirm('Reset seluruh power 8 arah untuk analog kiri dan kanan?'))return;state.dirMin.fill(100);state.dirMax.fill(100);syncCalInputs();await saveCalibration()}
+function calIndices(displayIndex){const d=CAL_NATIVE[displayIndex],st=+$('calStick').value;return st===2?[d,8+d]:[st*8+d]}
+function syncCalInputs(){
+ const host=$('calWheels');
+ host.innerHTML=CAL_DIRS.map((name,i)=>{const ids=calIndices(i),v=state.dirMax[ids[0]];return '<div class="valuecard" style="padding:8px"><div style="display:flex;align-items:center;gap:8px"><b style="font-size:22px;width:28px;text-align:center">'+CAL_ARROWS[i]+'</b><b style="flex:1">'+name+'</b><output id="calVal'+i+'">'+v+'%</output></div><input aria-label="Jangkauan '+name+'" class="wheel" type="range" min="50" max="200" step="1" value="'+v+'" oninput="changeCalValue('+i+',this.value)"><div class="s">50% lebih responsif · 100% normal · 200% lebih jauh</div></div>'}).join('');
+ drawCalVisual();
+}
+function changeCalValue(displayIndex,value){
+ const v=Math.max(50,Math.min(200,Math.round(Number(value)||100))),ids=calIndices(displayIndex);
+ ids.forEach(ix=>{state.dirMin[ix]=100;state.dirMax[ix]=v});
+ const out=$('calVal'+displayIndex);if(out)out.textContent=v+'%';
+ drawCalVisual();saveAutoConfig();$('calMsg').textContent='Menerapkan perubahan…';
+ if(calSaveTimer!==null)clearTimeout(calSaveTimer);
+ calSaveTimer=setTimeout(saveCalibration,100);
+}
+function drawCalVisual(){
+ const c=$('calVisual');if(!c)return;const x=c.getContext('2d'),w=c.width,h=c.height,cx=w/2,cy=h/2,r=118;
+ x.clearRect(0,0,w,h);x.lineWidth=2;
+ for(let k=1;k<=4;k++){x.beginPath();x.arc(cx,cy,r*k/4,0,Math.PI*2);x.strokeStyle=k===4?'#91a6c8':'#344663';x.stroke()}
+ x.strokeStyle='#405575';x.beginPath();x.moveTo(cx-r,cy);x.lineTo(cx+r,cy);x.moveTo(cx,cy-r);x.lineTo(cx,cy+r);x.stroke();
+ for(let i=0;i<8;i++){const a=-Math.PI/2+i*Math.PI/4,ids=calIndices(i),v=state.dirMax[ids[0]],reach=Math.max(.25,Math.min(1,100/v)),px=cx+Math.cos(a)*r*reach,py=cy+Math.sin(a)*r*reach;
+ x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r);x.strokeStyle='#344663';x.lineWidth=1;x.stroke();
+ x.beginPath();x.moveTo(cx,cy);x.lineTo(px,py);x.strokeStyle='#69e0a1';x.lineWidth=4;x.stroke();
+ x.beginPath();x.arc(px,py,7,0,Math.PI*2);x.fillStyle='#69e0a1';x.fill();
+ x.fillStyle='#e8edf7';x.font='bold 16px system-ui';x.textAlign='center';x.textBaseline='middle';x.fillText(CAL_ARROWS[i],cx+Math.cos(a)*(r+22),cy+Math.sin(a)*(r+22));
+ }
+ x.beginPath();x.arc(cx,cy,4,0,Math.PI*2);x.fillStyle='#fff';x.fill();
+ $('calVisualInfo').textContent='Titik pada tiap arah menunjukkan jarak fisik perkiraan untuk mencapai respons maksimum.';
+}
+async function saveCalibration(){
+ if(calSaveTimer!==null){clearTimeout(calSaveTimer);calSaveTimer=null}
+ const ok=await post('/api/config',{dirMin:state.dirMin,dirMax:state.dirMax});
+ if(ok){saveAutoConfig();$('calMsg').textContent='Semua perubahan sudah diterapkan ✓'}
+}
+async function resetCalibrationAll(){
+ if(!confirm('Reset seluruh 8 arah pada analog kiri dan kanan?'))return;
+ state.dirMin.fill(100);state.dirMax.fill(100);syncCalInputs();await saveCalibration();
+}
 
 function renderButtonCheck(d){
  const host=$('buttonCheck');if(!host)return;
