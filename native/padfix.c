@@ -418,11 +418,13 @@ static void handle(int c) {
         if (json_arr(body, "offset", off, 4)) { int ok = 1; for (int i = 0; i < 4; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 4; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetL", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetR", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i + 2] = off[i]; }
+        save_config();
         jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/reset")) {
         cfg_margin = 600; cfg_min_dz = 1500; cfg_kp = 0;
         for (int i = 0; i < 8; i++) sens[i] = 100;
         for (int i = 0; i < 4; i++) cfg_offset[i] = 0;
+        save_config();
         jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/recal")) { want_recal = 1; jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/screenshot")) {
