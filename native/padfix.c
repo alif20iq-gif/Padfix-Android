@@ -70,17 +70,23 @@ static void load_config(void) {
     int m,z,k,s[8],o[4],ce[2],ct[2],cc[4],cp[16],ok=fscanf(f,"%d%d%d",&m,&z,&k)==3;
     for(int i=0;ok&&i<8;i++)ok=fscanf(f,"%d",&s[i])==1&&s[i]>=50&&s[i]<=200;
     for(int i=0;ok&&i<4;i++)ok=fscanf(f,"%d",&o[i])==1&&o[i]>=-30000&&o[i]<=30000;
-    for(int i=0;ok&&i<2;i++)ok=fscanf(f,"%d%d",&ce[i],&ct[i])==2&&ce[i]>=0&&ce[i]<=1&&ct[i]>=1000&&ct[i]<=30000;
-    for(int i=0;ok&&i<4;i++)ok=fscanf(f,"%d",&cc[i])==1&&cc[i]>=-32768&&cc[i]<=32767;
-    for(int i=0;ok&&i<16;i++)ok=fscanf(f,"%d",&cp[i])==1&&cp[i]>=-32768&&cp[i]<=32767;
+    int has_circular=0;
+    if(ok && fscanf(f,"%d%d",&ce[0],&ct[0])==2 && fscanf(f,"%d%d",&ce[1],&ct[1])==2) {
+        has_circular=1;
+        for(int i=0;i<2;i++)if(ce[i]<0||ce[i]>1||ct[i]<1000||ct[i]>30000)ok=0;
+        for(int i=0;ok&&i<4;i++)ok=fscanf(f,"%d",&cc[i])==1&&cc[i]>=-32768&&cc[i]<=32767;
+        for(int i=0;ok&&i<16;i++)ok=fscanf(f,"%d",&cp[i])==1&&cp[i]>=-32768&&cp[i]<=32767;
+    }
     fclose(f);
     if(ok&&m>=0&&m<=30000&&z>=0&&z<=30000&&k>=0&&k<=100){
         cfg_margin=m;cfg_min_dz=z;cfg_kp=k;
         for(int i=0;i<8;i++)sens[i]=s[i];
         for(int i=0;i<4;i++)cfg_offset[i]=o[i];
-        for(int i=0;i<2;i++){circular_enabled[i]=ce[i];circular_target[i]=ct[i];}
-        for(int i=0;i<4;i++)circular_center[i]=cc[i];
-        for(int i=0;i<16;i++)circular_points[i]=cp[i];
+        if(has_circular){
+            for(int i=0;i<2;i++){circular_enabled[i]=ce[i];circular_target[i]=ct[i];}
+            for(int i=0;i<4;i++)circular_center[i]=cc[i];
+            for(int i=0;i<16;i++)circular_points[i]=cp[i];
+        }
         printf("Konfigurasi terakhir dipulihkan.\n");
     }
 }
@@ -422,7 +428,7 @@ static void send_status(int c) {
     A(",\"circular_enabled\":[%d,%d],\"circular_target\":[%d,%d],\"circular_center\":[%d,%d,%d,%d],\"circular_points\":[",
       circular_enabled[0],circular_enabled[1],circular_target[0],circular_target[1],circular_center[0],circular_center[1],circular_center[2],circular_center[3]);
     for(int i=0;i<16;i++)A("%s%d",i?",":"",circular_points[i]);
-    A("]");
+    A("],\"buttons\":[");
     int first = 1;
     for (int k = 1; k <= KEY_MAX; k++) if (have_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
     A("],\"pressed\":["); first = 1;
