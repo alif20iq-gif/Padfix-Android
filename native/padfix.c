@@ -422,7 +422,7 @@ static void send_status(int c) {
     A("{\"running\":%s,\"connected\":%s,\"grabbed\":%s,\"calibrated\":%s,\"name\":\"%s\",\"margin\":%d,\"min_dz\":%d,\"kp\":%d,\"last_key\":%d,\"sens\":[",
       running ? "true" : "false", live_conn ? "true" : "false", live_grab ? "true" : "false", live_cal ? "true" : "false", dev_name, cfg_margin, cfg_min_dz, cfg_kp, last_key);
     for (int i = 0; i < 8; i++) A("%s%d", i ? "," : "", sens[i]);
-    A("],\"offset\":[%d,%d,%d,%d],\"raw\":[%d,%d,%d,%d],\"fixed\":[%d,%d,%d,%d],\"center\":[%d,%d,%d,%d],\"deadzone\":[%d,%d,%d,%d],\"buttons\":[",
+    A("],\"offset\":[%d,%d,%d,%d],\"raw\":[%d,%d,%d,%d],\"fixed\":[%d,%d,%d,%d],\"center\":[%d,%d,%d,%d],\"deadzone\":[%d,%d,%d,%d]",
       cfg_offset[0], cfg_offset[1], cfg_offset[2], cfg_offset[3], live_raw[0], live_raw[1], live_raw[2], live_raw[3], live_fixed[0], live_fixed[1], live_fixed[2], live_fixed[3],
       live_center[0], live_center[1], live_center[2], live_center[3], live_dz[0], live_dz[1], live_dz[2], live_dz[3]);
     A(",\"circular_enabled\":[%d,%d],\"circular_target\":[%d,%d],\"circular_center\":[%d,%d,%d,%d],\"circular_points\":[",
