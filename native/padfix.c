@@ -24,6 +24,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <math.h>
 
 #define BPL (sizeof(unsigned long) * 8)
 #define NB(x) ((((x) - 1) / BPL) + 1)
@@ -36,6 +37,9 @@ static volatile int cfg_margin = 600, cfg_min_dz = 1500, cfg_kp = 0;
 static volatile int sens[8] = {100,100,100,100,100,100,100,100};
 // Offset manual per axis: koreksi titik tengah hasil kalibrasi.
 static volatile int cfg_offset[4] = {0,0,0,0};
+static volatile int circular_enabled[2] = {0,0}, circular_target[2] = {20000,20000};
+static volatile int circular_center[4] = {-16379,16507,-16379,16507};
+static volatile int circular_points[16] = {0,-9842,9842,0,0,22574,-22350,0,0,-9842,9842,0,0,22574,-22350,0};
 static volatile int live_raw[4], live_fixed[4], live_center[4], live_dz[4];
 static volatile int live_cal = 0, live_conn = 0, live_grab = 0, want_recal = 0, last_key = 0;
 static unsigned char have_key[KEY_MAX + 1];
@@ -55,18 +59,28 @@ static void save_config(void) {
     fprintf(f,"%d %d %d\n",cfg_margin,cfg_min_dz,cfg_kp);
     for(int i=0;i<8;i++)fprintf(f,"%d%c",sens[i],i==7?'\n':' ');
     for(int i=0;i<4;i++)fprintf(f,"%d%c",cfg_offset[i],i==3?'\n':' ');
+    for(int i=0;i<2;i++)fprintf(f,"%d %d ",circular_enabled[i],circular_target[i]);
+    fputc('\n',f);
+    for(int i=0;i<4;i++)fprintf(f,"%d%c",circular_center[i],i==3?'\n':' ');
+    for(int i=0;i<16;i++)fprintf(f,"%d%c",circular_points[i],i==15?'\n':' ');
     if(fclose(f)==0){if(rename(tmp,config_path)!=0)unlink(tmp);}else unlink(tmp);
 }
 static void load_config(void) {
     FILE *f=fopen(config_path,"r");if(!f)return;
-    int m,z,k,s[8],o[4],ok=fscanf(f,"%d%d%d",&m,&z,&k)==3;
+    int m,z,k,s[8],o[4],ce[2],ct[2],cc[4],cp[16],ok=fscanf(f,"%d%d%d",&m,&z,&k)==3;
     for(int i=0;ok&&i<8;i++)ok=fscanf(f,"%d",&s[i])==1&&s[i]>=50&&s[i]<=200;
     for(int i=0;ok&&i<4;i++)ok=fscanf(f,"%d",&o[i])==1&&o[i]>=-30000&&o[i]<=30000;
+    for(int i=0;ok&&i<2;i++)ok=fscanf(f,"%d%d",&ce[i],&ct[i])==2&&ce[i]>=0&&ce[i]<=1&&ct[i]>=1000&&ct[i]<=30000;
+    for(int i=0;ok&&i<4;i++)ok=fscanf(f,"%d",&cc[i])==1&&cc[i]>=-32768&&cc[i]<=32767;
+    for(int i=0;ok&&i<16;i++)ok=fscanf(f,"%d",&cp[i])==1&&cp[i]>=-32768&&cp[i]<=32767;
     fclose(f);
     if(ok&&m>=0&&m<=30000&&z>=0&&z<=30000&&k>=0&&k<=100){
         cfg_margin=m;cfg_min_dz=z;cfg_kp=k;
         for(int i=0;i<8;i++)sens[i]=s[i];
         for(int i=0;i<4;i++)cfg_offset[i]=o[i];
+        for(int i=0;i<2;i++){circular_enabled[i]=ce[i];circular_target[i]=ct[i];}
+        for(int i=0;i<4;i++)circular_center[i]=cc[i];
+        for(int i=0;i<16;i++)circular_points[i]=cp[i];
         printf("Konfigurasi terakhir dipulihkan.\n");
     }
 }
@@ -141,6 +155,22 @@ static int fix(int v, int c, int dz, int lo, int hi, int half, int kp) {
 // ---------------- kalibrasi yang bertahan antar reconnect ----------------
 static int have_cal = 0, cen[4], noise[4];
 
+static void circular_map(int stick,int x,int y,int *ox,int *oy) {
+    int base=stick*8;
+    double a=atan2((double)y,(double)x); if(a<0)a+=2.0*M_PI;
+    const int order[4]={1,2,3,0};
+    int sector=(int)(a/(M_PI/2.0)); if(sector>3)sector=3;
+    double frac=(a-sector*(M_PI/2.0))/(M_PI/2.0);
+    int p1=order[sector],p2=order[(sector+1)%4];
+    double r1=hypot((double)circular_points[base+p1*2],(double)circular_points[base+p1*2+1]);
+    double r2=hypot((double)circular_points[base+p2*2],(double)circular_points[base+p2*2+1]);
+    double boundary=r1+(r2-r1)*frac; if(boundary<1.0)boundary=1.0;
+    double scale=(double)circular_target[stick]/boundary;
+    double vx=x*scale,vy=y*scale,r=hypot(vx,vy),target=circular_target[stick];
+    if(r>target){vx*=target/r;vy*=target/r;}
+    *ox=(int)lrint(vx);*oy=(int)lrint(vy);
+}
+ 
 // Satu sesi = satu koneksi gamepad. return 1: coba lagi, 0: selesai, -1: fatal.
 static int session(const char *fixed, int cal_ms, int *announced) {
     char path[64] = {0};
@@ -254,6 +284,19 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                         int center = cen[i] + cfg_offset[i];
                         if (center < lo[i]) center = lo[i];
                         if (center > hi[i]) center = hi[i];
+                        int stick=i/2, axis=i%2;
+                        if(circular_enabled[stick]) {
+                            int cx=circular_center[stick*2],cy=circular_center[stick*2+1];
+                            int vx=live_raw[stick*2]-cx,vy=live_raw[stick*2+1]-cy,mx=0,my=0;
+                            circular_map(stick,vx,vy,&mx,&my);
+                            int mapped=axis?my:mx;
+                            if(mapped>half[i])mapped=half[i];if(mapped< -half[i])mapped=-half[i];
+                            out=oc[i]+mapped;live_fixed[i]=mapped;live_dz[i]=dz;
+                            if(out==last[i])continue;
+                            last[i]=out;e.value=out;
+                            if(out_count<sizeof out_ev/sizeof out_ev[0])out_ev[out_count++]=e;
+                            continue;
+                        }
                         int off = fix(e.value, center, dz, lo[i], hi[i], half[i], cfg_kp);
                         int pct = sens[i * 2 + (off < 0 ? 0 : 1)];
                         /* Sensitivitas arah: nilai lebih kecil memperkuat power; 50%=2x, 100%=1x, 200%=0.5x. */
@@ -418,6 +461,11 @@ static void handle(int c) {
         if (json_arr(body, "offset", off, 4)) { int ok = 1; for (int i = 0; i < 4; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 4; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetL", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetR", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i + 2] = off[i]; }
+        int ce[2],ct[2],cc[4],cp[16];
+        if(json_arr(body,"circular_enabled",ce,2))for(int i=0;i<2;i++)if(ce[i]>=0&&ce[i]<=1)circular_enabled[i]=ce[i];
+        if(json_arr(body,"circular_target",ct,2))for(int i=0;i<2;i++)if(ct[i]>=1000&&ct[i]<=30000)circular_target[i]=ct[i];
+        if(json_arr(body,"circular_center",cc,4)){int ok=1;for(int i=0;i<4;i++)if(cc[i]<-32768||cc[i]>32767)ok=0;if(ok)for(int i=0;i<4;i++)circular_center[i]=cc[i];}
+        if(json_arr(body,"circular_points",cp,16)){int ok=1;for(int i=0;i<16;i++)if(cp[i]<-32768||cp[i]>32767)ok=0;if(ok)for(int i=0;i<16;i++)circular_points[i]=cp[i];}
         save_config();
         jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/reset")) {
