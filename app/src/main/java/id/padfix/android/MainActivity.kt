@@ -99,10 +99,10 @@ class MainActivity : Activity() {
                 "cp ${shellQuote(bin.absolutePath)} /data/local/tmp/padfix && " +
                 "cp ${shellQuote(html.absolutePath)} /data/local/tmp/padfix_index.html && " +
                 "chmod 755 /data/local/tmp/padfix && " +
-                "if ! pidof padfix >/dev/null 2>&1; then " +
+                "pkill -x padfix 2>/dev/null || true; " +
                 "rm -f /data/local/tmp/padfix.log; " +
                 "nohup /data/local/tmp/padfix -w /data/local/tmp/padfix_index.html " +
-                "</dev/null >/data/local/tmp/padfix.log 2>&1 & fi; " +
+                "</dev/null >/data/local/tmp/padfix.log 2>&1 & " +
                 "sleep 1; cat /data/local/tmp/padfix.log 2>/dev/null"
             val process = invokeShizukuProcess(arrayOf("sh", "-c", command))
             thread(name = "Padfix-bootstrap") {
