@@ -16,16 +16,16 @@
 </div><p id="ax" class="s"></p></section>
 <section class="card"><h3 class="sectiontitle">Pengaturan jangkauan dan offset</h3><p class="s">Mode V10: hanya empat sumbu analog yang dikoreksi. D-pad ABS_HAT diterjemahkan menjadi tombol BTN_DPAD virtual; tombol lain, trigger, dan event non-analog diteruskan tanpa perubahan.</p><p class="s">Jangkauan adalah jarak gerak fisik yang dipetakan ke output analog penuh, bukan kecepatan pemicu. Nilai lebih besar = perlu gerakan fisik lebih jauh; nilai lebih kecil = jangkauan output penuh tercapai lebih cepat. Atur tiap arah secara terpisah untuk menyeimbangkan sisi yang pendek akibat offset/drift.</p>
 <div class="grid">
-<div class="stickbox"><div class="sticktitle"><b>Jangkauan kiri</b><span id="svL" class="s"></span></div><div class="padwrap"><canvas id="sensL" class="pad small" width="240" height="240"></canvas><div class="hint">Arah seretan memilih sisi. Arah seretan menentukan arah prioritas. Semakin jauh dari pusat, semakin kuat power ke arah tersebut (hingga 2×).</div></div><div id="sensTxtL" class="metrics"></div><p><button type="button" onclick="applySens(0)">Terapkan jangkauan kiri</button></p></div>
-<div class="stickbox"><div class="sticktitle"><b>Jangkauan kanan</b><span id="svR" class="s"></span></div><div class="padwrap"><canvas id="sensR" class="pad small" width="240" height="240"></canvas><div class="hint">Arah seretan memilih sisi. Arah seretan menentukan arah prioritas. Semakin jauh dari pusat, semakin kuat power ke arah tersebut (hingga 2×).</div></div><div id="sensTxtR" class="metrics"></div><p><button type="button" onclick="applySens(1)">Terapkan jangkauan kanan</button></p></div>
-<div class="stickbox"><div class="sticktitle"><b>Offset kiri</b><span id="ovL" class="s"></span></div><div class="padwrap"><canvas id="offL" class="pad small" width="240" height="240"></canvas><div class="hint">Geser titik untuk mengatur pusat deteksi kiri secara manual.</div></div><div id="offTxtL" class="metrics"></div><p><button type="button" onclick="applyOffset(0)">Terapkan offset kiri</button></p></div>
-<div class="stickbox"><div class="sticktitle"><b>Offset kanan</b><span id="ovR" class="s"></span></div><div class="padwrap"><canvas id="offR" class="pad small" width="240" height="240"></canvas><div class="hint">Geser titik untuk mengatur pusat deteksi kanan secara manual.</div></div><div id="offTxtR" class="metrics"></div><p><button type="button" onclick="applyOffset(1)">Terapkan offset kanan</button></p></div>
+<div class="stickbox"><div class="sticktitle"><b>Jangkauan kiri</b><span id="svL" class="s"></span></div><div class="padwrap"><canvas id="sensL" class="pad small" width="240" height="240"></canvas><div class="hint">Arah seretan memilih sisi. Arah seretan menentukan arah prioritas. Semakin jauh dari pusat, semakin kuat power ke arah tersebut (hingga 2×).</div></div><div id="sensTxtL" class="metrics"></div><p><button type="button" onclick="applySens(0)">Terapkan jangkauan kiri</button> <button type="button" class="d" onclick="resetStick(0)">Reset kiri</button></p></div>
+<div class="stickbox"><div class="sticktitle"><b>Jangkauan kanan</b><span id="svR" class="s"></span></div><div class="padwrap"><canvas id="sensR" class="pad small" width="240" height="240"></canvas><div class="hint">Arah seretan memilih sisi. Arah seretan menentukan arah prioritas. Semakin jauh dari pusat, semakin kuat power ke arah tersebut (hingga 2×).</div></div><div id="sensTxtR" class="metrics"></div><p><button type="button" onclick="applySens(1)">Terapkan jangkauan kanan</button> <button type="button" class="d" onclick="resetStick(1)">Reset kanan</button></p></div>
+<div class="stickbox"><div class="sticktitle"><b>Offset kiri</b><span id="ovL" class="s"></span></div><div class="padwrap"><canvas id="offL" class="pad small" width="240" height="240"></canvas><div class="hint">Geser titik untuk mengatur pusat deteksi kiri secara manual.</div></div><div id="offTxtL" class="metrics"></div><p><button type="button" onclick="applyOffset(0)">Terapkan offset kiri</button> <button type="button" class="d" onclick="resetStick(0)">Reset kiri</button></p></div>
+<div class="stickbox"><div class="sticktitle"><b>Offset kanan</b><span id="ovR" class="s"></span></div><div class="padwrap"><canvas id="offR" class="pad small" width="240" height="240"></canvas><div class="hint">Geser titik untuk mengatur pusat deteksi kanan secara manual.</div></div><div id="offTxtR" class="metrics"></div><p><button type="button" onclick="applyOffset(1)">Terapkan offset kanan</button> <button type="button" class="d" onclick="resetStick(1)">Reset kanan</button></p></div>
 </div>
 <div class="row"><b>Margin drift</b><input id="margin" type="range" min="0" max="10000" step="50" style="flex:1"><output id="mo"></output></div>
 <div class="row"><b>DZ minimum</b><input id="minz" type="range" min="0" max="12000" step="100" style="flex:1"><output id="zo"></output></div>
 <div class="row"><b>Sisi terpotong</b><input id="kp" type="range" min="0" max="100" style="flex:1"><output id="ko"></output></div>
 <div class="row"><button type="button" onclick="applyGeneral()">Terapkan margin / DZ / sisi terpotong</button><button type="button" class="d" onclick="resetAll()">Reset semua pengaturan</button><span id="msg" class="s"></span></div></section>
-<section class="card"><h3>Screenshot Android</h3><button onclick="shot()">Ambil screenshot</button> <span id="sm" class="s"></span><div><img id="im"></div></section>
+<section class="card"><h3 class="sectiontitle">Pengecekan tombol fisik</h3><p class="s">Daftar tombol yang didukung controller. Tekan tombol fisik untuk melihat kode tombol terakhir di panel Gamepad.</p><div id="buttonCheck" class="grid s">Menunggu data…</div></section><section class="card"><h3>Screenshot Android</h3><button onclick="shot()">Ambil screenshot</button> <span id="sm" class="s"></span><div><img id="im"></div></section>
 </main><script>
 const T=new URLSearchParams(location.search).get('t'),H={'X-Token':T,'Content-Type':'application/json'};const $=id=>document.getElementById(id);
 // Canvas joystick memakai Pointer Events + pointer capture dan touch-action:none secara lokal.
@@ -93,20 +93,20 @@ function animateMonitor(){
  drawMonitor('monR',monitorCurrent[2],monitorCurrent[3]);
  requestAnimationFrame(animateMonitor);
 }
-async function refresh(){if(refreshing)return;refreshing=true;try{let r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){$('st').textContent='TOKEN?';return}let d=await r.json();$('st').textContent=d.connected?'TERSAMBUNG':'TERLEPAS';$('nm').textContent=d.name+(d.connected&&!d.grabbed?' · PERINGATAN: input belum berhasil dikunci dari browser':'');$('cal').textContent=d.calibrated?'SELESAI':'LEPAS STIK…';$('lk').textContent=d.last_key||'—';monitorTarget=d.fixed.slice();$('lv').textContent=d.fixed[0]+' , '+d.fixed[1];$('rv').textContent=d.fixed[2]+' , '+d.fixed[3];$('lm').textContent=`Raw X/Y: ${d.raw[0]} / ${d.raw[1]} · Pusat: ${d.center[0]} / ${d.center[1]} · DZ: ${d.deadzone[0]} / ${d.deadzone[1]}`;$('rm').textContent=`Raw X/Y: ${d.raw[2]} / ${d.raw[3]} · Pusat: ${d.center[2]} / ${d.center[3]} · DZ: ${d.deadzone[2]} / ${d.deadzone[3]}`;$('ax').textContent='Offset aktif: '+d.offset.join(' / ');if(!built){built=true;state.sens=d.sens;state.offset=d.offset||[0,0,0,0];state.margin=d.margin;state.min_dz=d.min_dz;state.kp=d.kp;$('margin').value=d.margin;$('minz').value=d.min_dz;$('kp').value=d.kp;[['margin','mo'],['minz','zo'],['kp','ko']].forEach(([a,b])=>{$(b).textContent=$(a).value;$(a).oninput=()=>$(b).textContent=$(a).value});drawSettings()}}catch(e){$('st').textContent='OFFLINE'}finally{refreshing=false}}
+async function refresh(){if(refreshing)return;refreshing=true;try{let r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){$('st').textContent='TOKEN?';return}let d=await r.json();$('st').textContent=d.connected?'TERSAMBUNG':'TERLEPAS';$('nm').textContent=d.name+(d.connected&&!d.grabbed?' · PERINGATAN: input belum berhasil dikunci dari browser':'');$('cal').textContent=d.calibrated?'SELESAI':'LEPAS STIK…';$('lk').textContent=d.last_key||'—';monitorTarget=d.fixed.slice();$('lv').textContent=d.fixed[0]+' , '+d.fixed[1];$('rv').textContent=d.fixed[2]+' , '+d.fixed[3];$('lm').textContent=`Raw X/Y: ${d.raw[0]} / ${d.raw[1]} · Pusat: ${d.center[0]} / ${d.center[1]} · DZ: ${d.deadzone[0]} / ${d.deadzone[1]}`;$('rm').textContent=`Raw X/Y: ${d.raw[2]} / ${d.raw[3]} · Pusat: ${d.center[2]} / ${d.center[3]} · DZ: ${d.deadzone[2]} / ${d.deadzone[3]}`;$('ax').textContent='Offset aktif: '+d.offset.join(' / ');renderButtonCheck(d);if(!built){built=true;let saved=readAutoConfig();state.sens=saved?saved.sens:d.sens;state.offset=saved?saved.offset:(d.offset||[0,0,0,0]);state.margin=saved?saved.margin:d.margin;state.min_dz=saved?saved.min_dz:d.min_dz;state.kp=saved?saved.kp:d.kp;$('margin').value=d.margin;$('minz').value=d.min_dz;$('kp').value=d.kp;[['margin','mo'],['minz','zo'],['kp','ko']].forEach(([a,b])=>{$(b).textContent=$(a).value;$(a).oninput=()=>$(b).textContent=$(a).value});drawSettings();if(saved)await applyAutoConfig(saved)}}catch(e){$('st').textContent='OFFLINE'}finally{refreshing=false}}
 async function applySens(stick){
  const key=stick===0?'sensL':'sensR',base=stick*4;
  const ok=await post('/api/config',{[key]:state.sens.slice(base,base+4)});
- if(ok)$('msg').textContent='Jangkauan '+(stick===0?'kiri':'kanan')+' tersimpan ✓';
+ if(ok){saveAutoConfig();$('msg').textContent='Jangkauan '+(stick===0?'kiri':'kanan')+' tersimpan ✓';}
 }
 async function applyOffset(stick){
  const key=stick===0?'offsetL':'offsetR',base=stick*2;
  const ok=await post('/api/config',{[key]:state.offset.slice(base,base+2)});
- if(ok)$('msg').textContent='Offset '+(stick===0?'kiri':'kanan')+' tersimpan ✓';
+ if(ok){saveAutoConfig();$('msg').textContent='Offset '+(stick===0?'kiri':'kanan')+' tersimpan ✓';}
 }
 async function applyGeneral(){
  const ok=await post('/api/config',{margin:+$('margin').value,min_dz:+$('minz').value,kp:+$('kp').value});
- if(ok)$('msg').textContent='Pengaturan umum diterapkan ✓';
+ if(ok){saveAutoConfig();$('msg').textContent='Pengaturan umum diterapkan ✓';}
 }
 async function resetAll(){
  if(!confirm('Reset semua pengaturan analog Padfix ke nilai awal?'))return;
@@ -116,7 +116,25 @@ async function resetAll(){
  sensCursor=[{x:0,y:0},{x:0,y:0}];
  $('margin').value=600;$('minz').value=1500;$('kp').value=0;
  $('mo').textContent='600';$('zo').textContent='1500';$('ko').textContent='0';
- drawSettings();$('msg').textContent='Semua pengaturan kembali ke awal ✓';
+ drawSettings();saveAutoConfig();$('msg').textContent='Semua pengaturan kembali ke awal ✓';
+}
+const AUTO_KEY='padfix.autosave.v1';
+function readAutoConfig(){try{const p=JSON.parse(localStorage.getItem(AUTO_KEY)||'null');return validPreset(p)?p:null}catch(e){return null}}
+function saveAutoConfig(){try{localStorage.setItem(AUTO_KEY,JSON.stringify(currentPreset()))}catch(e){}}
+async function applyAutoConfig(p){const body={sensL:p.sens.slice(0,4),sensR:p.sens.slice(4,8),offsetL:p.offset.slice(0,2),offsetR:p.offset.slice(2,4),margin:+p.margin,min_dz:+p.min_dz,kp:+p.kp};await post('/api/config',body)}
+function renderButtonCheck(d){
+ const host=$('buttonCheck');if(!host)return;
+ const labels={304:'A / Cross',305:'B / Circle',307:'X / Square',308:'Y / Triangle',310:'L1',311:'R1',312:'L2',313:'R2',314:'Select',315:'Start',316:'Home',317:'L3',318:'R3',544:'D-pad atas',545:'D-pad bawah',546:'D-pad kiri',547:'D-pad kanan',309:'Capture'};
+ const codes=Array.isArray(d.buttons)?d.buttons:[];
+ host.innerHTML=codes.map(code=>'<div class="stickbox" style="padding:8px"><b>'+(labels[code]||('Tombol '+code))+'</b><div class="s">Kode '+code+'</div></div>').join('')||'Tidak ada daftar tombol dari controller.';
+}
+async function resetStick(stick){
+ const label=stick===0?'kiri':'kanan',base=stick*4,off=stick*2;
+ if(!confirm('Reset jangkauan dan offset analog '+label+'?'))return;
+ state.sens.splice(base,4,100,100,100,100);state.offset.splice(off,2,0,0);
+ const body=stick===0?{sensL:[100,100,100,100],offsetL:[0,0]}:{sensR:[100,100,100,100],offsetR:[0,0]};
+ const ok=await post('/api/config',body);if(!ok)return;
+ saveAutoConfig();drawSettings();$('msg').textContent='Analog '+label+' direset ✓';
 }
 const PRESET_KEY='padfix.presets.v1';
 function readPresets(){try{return JSON.parse(localStorage.getItem(PRESET_KEY)||'{}')}catch(e){return {}}}
@@ -145,13 +163,13 @@ async function applyPresetData(p){
  state.margin=+p.margin;state.min_dz=+p.min_dz;state.kp=+p.kp;
  $('margin').value=state.margin;$('minz').value=state.min_dz;$('kp').value=state.kp;
  $('mo').textContent=state.margin;$('zo').textContent=state.min_dz;$('ko').textContent=state.kp;
- drawSettings();$('presetMsg').textContent='Preset berhasil dimuat dan diterapkan ✓';
+ drawSettings();saveAutoConfig();$('presetMsg').textContent='Preset berhasil dimuat dan diterapkan ✓';
 }
 function savePreset(){
  const name=$('presetName').value.trim();
  if(!name){$('presetMsg').textContent='Isi nama preset terlebih dahulu.';return}
  const presets=readPresets();presets[name]=currentPreset();
- try{localStorage.setItem(PRESET_KEY,JSON.stringify(presets));refreshPresetList(name);$('presetMsg').textContent='Preset "'+name+'" tersimpan ✓'}
+ try{localStorage.setItem(PRESET_KEY,JSON.stringify(presets));saveAutoConfig();refreshPresetList(name);$('presetMsg').textContent='Preset "'+name+'" tersimpan ✓'}
  catch(e){$('presetMsg').textContent='Gagal menyimpan. Penyimpanan WebView mungkin penuh/nonaktif.'}
 }
 async function loadPreset(){
