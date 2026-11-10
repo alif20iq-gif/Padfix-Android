@@ -139,7 +139,7 @@ function closeCalibration(){$('calModal').classList.remove('open')}
 function calIndices(displayIndex){const d=CAL_NATIVE[displayIndex],st=+$('calStick').value;return st===2?[d,8+d]:[st*8+d]}
 function syncCalInputs(){
  const host=$('calWheels');
- host.innerHTML=CAL_DIRS.map((name,i)=>{const ids=calIndices(i),v=state.dirMax[ids[0]];return '<div class="valuecard" style="padding:8px"><div style="display:flex;align-items:center;gap:8px"><b style="font-size:22px;width:28px;text-align:center">'+CAL_ARROWS[i]+'</b><b style="flex:1">'+name+'</b><output id="calVal'+i+'">'+v+'%</output></div><input aria-label="Jangkauan '+name+'" class="wheel" type="range" min="50" max="200" step="1" value="'+v+'" oninput="changeCalValue('+i+',this.value)"><div class="s">50% lebih responsif · 100% normal · 200% lebih jauh</div></div>'}).join('');
+ host.innerHTML=CAL_DIRS.map((name,i)=>{const ids=calIndices(i),v=state.dirMax[ids[0]];return '<div class="valuecard" style="padding:8px"><div style="display:flex;align-items:center;gap:8px"><b style="font-size:22px;width:28px;text-align:center">'+CAL_ARROWS[i]+'</b><b style="flex:1">'+name+'</b><output id="calVal'+i+'">'+v+'%</output></div><input aria-label="Jangkauan '+name+'" class="wheel" type="range" min="50" max="200" step="1" value="'+v+'" oninput="changeCalValue('+i+',this.value)"><div class="s">50% respons lebih kecil · 100% normal · 200% lebih responsif</div></div>'}).join('');
  drawCalVisual();
 }
 function changeCalValue(displayIndex,value){
@@ -162,7 +162,7 @@ function drawCalVisual(){
  x.fillStyle='#e8edf7';x.font='bold 16px system-ui';x.textAlign='center';x.textBaseline='middle';x.fillText(CAL_ARROWS[i],cx+Math.cos(a)*(r+22),cy+Math.sin(a)*(r+22));
  }
  x.beginPath();x.arc(cx,cy,4,0,Math.PI*2);x.fillStyle='#fff';x.fill();
- $('calVisualInfo').textContent='Titik pada tiap arah menunjukkan jarak fisik perkiraan untuk mencapai respons maksimum.';
+ $('calVisualInfo').textContent='Titik menunjukkan perkiraan jarak fisik: semakin dekat ke pusat, semakin cepat output penuh tercapai. Nilai di bawah 100% membatasi output maksimum.';
 }
 async function saveCalibration(){
  if(calSaveTimer!==null){clearTimeout(calSaveTimer);calSaveTimer=null}
