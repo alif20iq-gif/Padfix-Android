@@ -46,6 +46,31 @@ static char token[17];
 static const char *www = "/data/local/tmp/padfix_index.html";
 static const char *match = "Pro Controller";
 static const int AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
+static unsigned char pressed_key[KEY_MAX + 1];
+
+static const char *config_path = "/data/local/tmp/padfix.conf";
+static void save_config(void) {
+    char tmp[96]; snprintf(tmp,sizeof tmp,"%s.tmp",config_path);
+    FILE *f=fopen(tmp,"w"); if(!f)return;
+    fprintf(f,"%d %d %d\\n",cfg_margin,cfg_min_dz,cfg_kp);
+    for(int i=0;i<8;i++)fprintf(f,"%d%c",sens[i],i==7?'\\n':' ');
+    for(int i=0;i<4;i++)fprintf(f,"%d%c",cfg_offset[i],i==3?'\\n':' ');
+    if(fclose(f)==0){if(rename(tmp,config_path)!=0)unlink(tmp);}else unlink(tmp);
+}
+static void load_config(void) {
+    FILE *f=fopen(config_path,"r");if(!f)return;
+    int m,z,k,s[8],o[4],ok=fscanf(f,"%d%d%d",&m,&z,&k)==3;
+    for(int i=0;ok&&i<8;i++)ok=fscanf(f,"%d",&s[i])==1&&s[i]>=50&&s[i]<=200;
+    for(int i=0;ok&&i<4;i++)ok=fscanf(f,"%d",&o[i])==1&&o[i]>=-30000&&o[i]<=30000;
+    fclose(f);
+    if(ok&&m>=0&&m<=30000&&z>=0&&z<=30000&&k>=0&&k<=100){
+        cfg_margin=m;cfg_min_dz=z;cfg_kp=k;
+        for(int i=0;i<8;i++)sens[i]=s[i];
+        for(int i=0;i<4;i++)cfg_offset[i]=o[i];
+        printf("Konfigurasi terakhir dipulihkan.\\n");
+    }
+}
+
 
 static void on_sig(int s) { (void)s; running = 0; }
 static int idx_of(int code) { for (int i = 0; i < 4; i++) if (AX[i] == code) return i; return -1; }
@@ -136,7 +161,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     int u = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
     if (u < 0) { perror("open /dev/uinput (butuh user shell/root)"); close(fd); return -1; }
     ioctl(u, UI_SET_EVBIT, EV_KEY); ioctl(u, UI_SET_EVBIT, EV_ABS); ioctl(u, UI_SET_EVBIT, EV_SYN);
-    memset(have_key, 0, sizeof have_key);
+    memset(have_key, 0, sizeof have_key); memset(pressed_key, 0, sizeof pressed_key);
     for (int k = 0; k <= KEY_MAX; k++) if (tbit(k, keybits)) { ioctl(u, UI_SET_KEYBIT, k); have_key[k] = 1; }
     // Beberapa game Android hanya mengenali D-pad sebagai EV_KEY, bukan ABS_HAT.
     const int dpad_keys[] = {BTN_DPAD_UP, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT};
@@ -247,6 +272,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                 // PASS-THROUGH MURNI: tombol fisik tidak di-remap, difilter,
                 // atau diubah nilainya. Padfix hanya memproses ABS_X/Y/RX/RY.
                 last_key = e.code;
+                if (e.code <= KEY_MAX) pressed_key[e.code] = (e.value != 0);
                 if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
             } else {
                 // Semua event selain empat sumbu analog dan HAT D-pad diteruskan apa adanya.
@@ -352,6 +378,8 @@ static void send_status(int c) {
       live_center[0], live_center[1], live_center[2], live_center[3], live_dz[0], live_dz[1], live_dz[2], live_dz[3]);
     int first = 1;
     for (int k = 1; k <= KEY_MAX; k++) if (have_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
+    A("],\\"pressed\\":["); first = 1;
+    for (int k = 1; k <= KEY_MAX; k++) if (pressed_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
     A("]}");
     #undef A
     jreply(c, "200 OK", b);
@@ -437,6 +465,7 @@ int main(int argc, char **argv) {
         else if (opt == 'w') www = optarg;
         else if (opt == 'd') demo = 1;
     }
+    load_config();
     signal(SIGINT, on_sig); signal(SIGTERM, on_sig); signal(SIGHUP, SIG_IGN); signal(SIGPIPE, SIG_IGN);
     unsigned char rnd[8] = {0};
     int rf = open("/dev/urandom", O_RDONLY);
