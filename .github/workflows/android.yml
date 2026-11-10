@@ -11,6 +11,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -49,12 +54,26 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+      - name: Build APK
+        id: build
+        shell: bash
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/padfix-release.jks"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/padfix-release.jks"
+            gradle --no-daemon assembleRelease
+            echo "apk_path=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
+            echo "build_type=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Stable signing secrets are not configured; producing a temporary debug APK."
+            gradle --no-daemon assembleDebug
+            echo "apk_path=app/build/outputs/apk/debug/app-debug.apk" >> "$GITHUB_OUTPUT"
+            echo "build_type=debug" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Padfix-Android-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Padfix-Android-${{ steps.build.outputs.build_type }}
+          path: ${{ steps.build.outputs.apk_path }}
           if-no-files-found: error
