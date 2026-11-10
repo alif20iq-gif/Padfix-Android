@@ -483,7 +483,7 @@ static void handle(int c) {
         for (int i = 0; i < 8; i++) sens[i] = 100;
         for (int i = 0; i < 4; i++) cfg_offset[i] = 0;
         for(int i=0;i<2;i++){circular_enabled[i]=0;circular_target[i]=20000;}
-        for(int i=0;i<4;i++)circular_center[i]=0;
+        for(int i=0;i<4;i++)circular_center[i]=(i%2==0?-16379:16507);
         const int defaults[16]={0,-9842,9842,0,0,22574,-22350,0,0,-9842,9842,0,0,22574,-22350,0};
         for(int i=0;i<16;i++)circular_points[i]=defaults[i];
         save_config();
