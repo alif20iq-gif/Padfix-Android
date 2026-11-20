@@ -1,5 +1,5 @@
 // padfix.c - Padfix V10 (Android: Termux + shell/ADB/Shizuku)
-// Koreksi analog saja; D-pad ABS_HAT diterjemahkan menjadi tombol BTN_DPAD virtual.
+// Koreksi analog saja; output ABS_X/Y dinormalisasi ke -24000..24000; D-pad ABS_HAT diterjemahkan menjadi tombol BTN_DPAD virtual.
 // screenshot (screencap) dan dashboard localhost. Backend harus jalan sebagai user
 // shell (uid 2000) agar bisa akses /dev/input & /dev/uinput. Tanpa root.
 // Build (Termux): clang -O2 -pthread -o padfix padfix.c
@@ -181,6 +181,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     snprintf(ud.name, UINPUT_MAX_NAME_SIZE, "%.60s (padfix)", rname);
     ud.id = id;
     int lo[4] = {0}, hi[4] = {0}, half[4] = {0}, oc[4] = {0};
+    int out_half[4] = {0}, out_center[4] = {0};
     for (int a = 0; a <= ABS_MAX; a++) {
         if (!tbit(a, absbits)) continue;
         struct input_absinfo ai;
@@ -188,8 +189,26 @@ static int session(const char *fixed, int cal_ms, int *announced) {
         ioctl(u, UI_SET_ABSBIT, a);
         ud.absmin[a] = ai.minimum; ud.absmax[a] = ai.maximum;
         int i = idx_of(a);
-        if (i >= 0) { lo[i] = ai.minimum; hi[i] = ai.maximum; half[i] = (hi[i] - lo[i]) / 2; oc[i] = (hi[i] + lo[i]) / 2; }
-        else { ud.absfuzz[a] = ai.fuzz; ud.absflat[a] = ai.flat; }
+        if (i >= 0) {
+            lo[i] = ai.minimum;
+            hi[i] = ai.maximum;
+            half[i] = (hi[i] - lo[i]) / 2;
+            oc[i] = (hi[i] + lo[i]) / 2;
+            out_center[i] = oc[i];
+            out_half[i] = half[i];
+
+            // Left stick output is deliberately normalized to the expected
+            // signed range. Keep the physical input calibration untouched.
+            if (i < 2) {
+                out_center[i] = 0;
+                out_half[i] = 24000;
+                ud.absmin[a] = -24000;
+                ud.absmax[a] = 24000;
+            }
+        } else {
+            ud.absfuzz[a] = ai.fuzz;
+            ud.absflat[a] = ai.flat;
+        }
     }
     if (write(u, &ud, sizeof ud) != (ssize_t)sizeof ud || ioctl(u, UI_DEV_CREATE) < 0) {
         perror("uinput create"); close(u); close(fd); return -1;
@@ -209,7 +228,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
         for (int i = 0; i < 4; i++) { struct input_absinfo ai; ioctl(fd, EVIOCGABS(AX[i]), &ai); mn[i] = mx[i] = ai.value; }
         printf("Kalibrasi %d ms: LEPAS kedua stik...\n", cal_ms); fflush(stdout);
     } else live_cal = 1;
-    for (int i = 0; i < 4; i++) last[i] = oc[i];
+    for (int i = 0; i < 4; i++) last[i] = out_center[i];
 
     int ret = 1;
     while (running) {
@@ -255,7 +274,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                     if (calibrating) {
                         if (e.value < mn[i]) mn[i] = e.value;
                         if (e.value > mx[i]) mx[i] = e.value;
-                        out = oc[i];
+                        out = out_center[i];
                     } else {
                         int dz = noise[i] + cfg_margin; if (dz < cfg_min_dz) dz = cfg_min_dz;
                         int center = cen[i] + cfg_offset[i];
@@ -264,19 +283,30 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                         int off = fix(e.value, center, dz, lo[i], hi[i], half[i], cfg_kp);
                         int pct = sens[i * 2 + (off < 0 ? 0 : 1)];
                         /* Sensitivitas arah: nilai lebih kecil memperkuat power; 50%=2x, 100%=1x, 200%=0.5x. */
-                        long so = (long)off * 100 / (pct > 0 ? pct : 100);
-                        if (so > half[i]) so = half[i];
-                        if (so < -half[i]) so = -half[i];
+                        long raw_so = (long)off * 100 / (pct > 0 ? pct : 100);
+                        if (raw_so > half[i]) raw_so = half[i];
+                        if (raw_so < -half[i]) raw_so = -half[i];
+
+                        // Convert the calibrated physical displacement into the
+                        // virtual axis range before direction shaping. This keeps
+                        // the two left-stick axes in the same coordinate space.
+                        long so = half[i] > 0 ? raw_so * out_half[i] / half[i] : 0;
+                        if (so > out_half[i]) so = out_half[i];
+                        if (so < -out_half[i]) so = -out_half[i];
+
                         int ox=(i==0||i==2)?(int)so:live_fixed[i-1];
                         int oy=(i==1||i==3)?(int)so:live_fixed[i+1];
                         int ax=ox<0?-ox:ox, ay=oy<0?-oy:oy, dir;
                         if(ax*2<ay) dir=oy<0?0:1; else if(ay*2<ax) dir=ox<0?2:3;
                         else if(ox>=0&&oy<0) dir=4; else if(ox<0&&oy<0) dir=5;
                         else if(ox>=0&&oy>=0) dir=6; else dir=7;
-                        int di=(i<2?0:8)+dir, radius=ax>ay?ax:ay; if(radius>half[i])radius=half[i];
-                        int power=dir_min[di]+(int)((long)(dir_max[di]-dir_min[di])*radius/(half[i]>0?half[i]:1));
-                        so=so*power/100; if(so>half[i])so=half[i]; if(so< -half[i])so= -half[i];
-                        out = oc[i] + (int)so;
+                        int di=(i<2?0:8)+dir, radius=ax>ay?ax:ay;
+                        if(radius>out_half[i])radius=out_half[i];
+                        int power=dir_min[di]+(int)((long)(dir_max[di]-dir_min[di])*radius/(out_half[i]>0?out_half[i]:1));
+                        so=so*power/100;
+                        if(so>out_half[i])so=out_half[i];
+                        if(so< -out_half[i])so= -out_half[i];
+                        out = out_center[i] + (int)so;
                         live_dz[i] = dz;
                     }
                     live_fixed[i] = out - oc[i];
