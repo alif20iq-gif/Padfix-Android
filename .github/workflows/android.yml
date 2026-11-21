@@ -2,7 +2,7 @@ name: Build Padfix Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/stable-ui-capture-power"]
   workflow_dispatch:
 
 permissions:
