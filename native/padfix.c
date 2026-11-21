@@ -246,7 +246,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
         for (int i = 0; i < 4; i++) { struct input_absinfo ai; ioctl(fd, EVIOCGABS(SRC_AX[i]), &ai); mn[i] = mx[i] = ai.value; }
         printf("Kalibrasi %d ms: LEPAS kedua stik...\n", cal_ms); fflush(stdout);
     } else live_cal = 1;
-    for (int i = 0; i < 4; i++) last[i] = oc[i];
+    for (int i = 0; i < 4; i++) last[i] = 0;
 
     int ret = 1;
     while (running) {
@@ -300,7 +300,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                     if (calibrating) {
                         if (e.value < mn[i]) mn[i] = e.value;
                         if (e.value > mx[i]) mx[i] = e.value;
-                        out = oc[i];
+                        out = scale_axis(oc[i], lo[i], hi[i]);
                     } else {
                         int dz = noise[i] + cfg_margin; if (dz < cfg_min_dz) dz = cfg_min_dz;
                         int center = cen[i] + cfg_offset[i];
