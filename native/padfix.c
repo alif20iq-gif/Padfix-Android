@@ -134,6 +134,35 @@ static void emit_batch(const struct input_event *events, size_t count) {
     pthread_mutex_unlock(&um);
 }
 
+// Virtual gamepad hidup sepanjang proses Padfix, bukan sepanjang koneksi fisik.
+static int virtual_center[4] = {0,0,0,0};
+static int virtual_axis[4] = {0,0,0,0};
+
+static void release_virtual_state(void) {
+    struct input_event events[KEY_MAX + 8];
+    size_t count = 0;
+    memset(events, 0, sizeof events);
+    for (int k = 0; k <= KEY_MAX; k++) {
+        if (!pressed_key[k]) continue;
+        events[count].type = EV_KEY;
+        events[count].code = (unsigned short)k;
+        events[count].value = 0;
+        count++;
+        pressed_key[k] = 0;
+    }
+    for (int i = 0; i < 4; i++) {
+        if (!virtual_axis[i]) continue;
+        events[count].type = EV_ABS;
+        events[count].code = (unsigned short)AX[i];
+        events[count].value = virtual_center[i];
+        count++;
+    }
+    events[count].type = EV_SYN;
+    events[count].code = SYN_REPORT;
+    count++;
+    emit_batch(events, count);
+}
+
 static int find_pad(char *out, size_t n) {
     for (int i = 0; i < 64; i++) {
         char p[64], name[256] = {0};
@@ -180,16 +209,21 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     struct input_id id; ioctl(fd, EVIOCGID, &id);
     char rname[128] = {0}; ioctl(fd, EVIOCGNAME(sizeof rname), rname);
 
-    int u = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-    if (u < 0) { perror("open /dev/uinput (butuh user shell/root)"); close(fd); return -1; }
-    ioctl(u, UI_SET_EVBIT, EV_KEY); ioctl(u, UI_SET_EVBIT, EV_ABS); ioctl(u, UI_SET_EVBIT, EV_SYN);
-    memset(have_key, 0, sizeof have_key); memset(pressed_key, 0, sizeof pressed_key);
-    for (int k = 0; k <= KEY_MAX; k++) if (tbit(k, keybits)) { ioctl(u, UI_SET_KEYBIT, k); have_key[k] = 1; }
-    // Beberapa game Android hanya mengenali D-pad sebagai EV_KEY, bukan ABS_HAT.
-    const int dpad_keys[] = {BTN_DPAD_UP, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT};
-    for (size_t q = 0; q < sizeof dpad_keys / sizeof dpad_keys[0]; q++) {
-        ioctl(u, UI_SET_KEYBIT, dpad_keys[q]);
-        have_key[dpad_keys[q]] = 1;
+    int u = ufd;
+    int create_virtual = (u < 0);
+    if (create_virtual) {
+        u = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+        if (u < 0) { perror("open /dev/uinput (butuh user shell/root)"); close(fd); return -1; }
+        ioctl(u, UI_SET_EVBIT, EV_KEY); ioctl(u, UI_SET_EVBIT, EV_ABS); ioctl(u, UI_SET_EVBIT, EV_SYN);
+        memset(have_key, 0, sizeof have_key);
+        memset(pressed_key, 0, sizeof pressed_key);
+        for (int k = 0; k <= KEY_MAX; k++) if (tbit(k, keybits)) { ioctl(u, UI_SET_KEYBIT, k); have_key[k] = 1; }
+        // Beberapa game Android hanya mengenali D-pad sebagai EV_KEY, bukan ABS_HAT.
+        const int dpad_keys[] = {BTN_DPAD_UP, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT};
+        for (size_t q = 0; q < sizeof dpad_keys / sizeof dpad_keys[0]; q++) {
+            ioctl(u, UI_SET_KEYBIT, dpad_keys[q]);
+            have_key[dpad_keys[q]] = 1;
+        }
     }
 
     struct uinput_user_dev ud; memset(&ud, 0, sizeof ud);
@@ -200,18 +234,24 @@ static int session(const char *fixed, int cal_ms, int *announced) {
         if (!tbit(a, absbits)) continue;
         struct input_absinfo ai;
         if (ioctl(fd, EVIOCGABS(a), &ai) < 0) continue;
-        ioctl(u, UI_SET_ABSBIT, a);
+        if (create_virtual) ioctl(u, UI_SET_ABSBIT, a);
         ud.absmin[a] = ai.minimum; ud.absmax[a] = ai.maximum;
         int i = idx_of(a);
-        if (i >= 0) { lo[i] = ai.minimum; hi[i] = ai.maximum; half[i] = (hi[i] - lo[i]) / 2; oc[i] = (hi[i] + lo[i]) / 2; }
-        else { ud.absfuzz[a] = ai.fuzz; ud.absflat[a] = ai.flat; }
+        if (i >= 0) {
+            lo[i] = ai.minimum; hi[i] = ai.maximum;
+            half[i] = (hi[i] - lo[i]) / 2; oc[i] = (hi[i] + lo[i]) / 2;
+            if (create_virtual) { virtual_center[i] = oc[i]; virtual_axis[i] = 1; }
+        } else { ud.absfuzz[a] = ai.fuzz; ud.absflat[a] = ai.flat; }
     }
-    if (write(u, &ud, sizeof ud) != (ssize_t)sizeof ud || ioctl(u, UI_DEV_CREATE) < 0) {
-        perror("uinput create"); close(u); close(fd); return -1;
+    if (create_virtual) {
+        if (write(u, &ud, sizeof ud) != (ssize_t)sizeof ud || ioctl(u, UI_DEV_CREATE) < 0) {
+            perror("uinput create"); close(u); close(fd); return -1;
+        }
+        pthread_mutex_lock(&um); ufd = u; pthread_mutex_unlock(&um);
+        printf("Virtual gamepad dibuat dan akan tetap aktif sampai Padfix dihentikan.\\n");
     }
     live_grab = (ioctl(fd, EVIOCGRAB, 1) == 0);
     if (!live_grab) perror("EVIOCGRAB (input fisik mungkin masih masuk ke browser)");
-    pthread_mutex_lock(&um); ufd = u; pthread_mutex_unlock(&um);
     snprintf(dev_name, sizeof dev_name, "%s", rname);
     for (char *p = dev_name; *p; p++) if (*p == '"' || *p == '\\') *p = '_';
     live_conn = 1; *announced = 0;
@@ -323,8 +363,10 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     if (!running) ret = 0; else { printf("Gamepad terlepas.\n"); fflush(stdout); }
     live_conn = 0; live_grab = 0;
     ioctl(fd, EVIOCGRAB, 0);
-    pthread_mutex_lock(&um); ufd = -1; pthread_mutex_unlock(&um);
-    ioctl(u, UI_DEV_DESTROY); close(u); close(fd);
+    release_virtual_state();
+    // Jangan hancurkan uinput saat controller terputus. Game tetap melihat
+    // perangkat virtual yang sama dalam keadaan netral sampai Padfix dihentikan.
+    close(fd);
     return ret;
 }
 
@@ -600,6 +642,16 @@ int main(int argc, char **argv) {
         if (r == 1 && running) sleep(1);
     }
     pthread_join(th, NULL);
+    release_virtual_state();
+    pthread_mutex_lock(&um);
+    int final_u = ufd;
+    ufd = -1;
+    pthread_mutex_unlock(&um);
+    if (final_u >= 0) {
+        ioctl(final_u, UI_DEV_DESTROY);
+        close(final_u);
+        printf("Virtual gamepad dihentikan.\\n");
+    }
     printf("Berhenti.\n");
     return 0;
 }
