@@ -88,11 +88,11 @@ function bindPad(id,kind,stick){
   let x=((e.clientX-b.left)/b.width)*2-1;
   let y=((e.clientY-b.top)/b.height)*2-1;
   const len=Math.hypot(x,y);if(len>1){x/=len;y/=len}
-  if(kind==='sens'){x*=0.35;y*=0.35;
+  if(kind==='sens'){
    const base=stick*4,dist=Math.min(1,Math.hypot(x,y));
    // Persentase lebih kecil = power lebih kuat (output mencapai penuh lebih cepat).
    // Seretan diagonal memperkuat kedua komponen arah agar vektor diagonal tetap seimbang.
-   const v=Math.round(200-dist*150), threshold=.22;
+   const v=Math.round(200-Math.pow(dist,1.8)*150), threshold=.22;
    sensCursor[stick]={x,y};
    if(x < -threshold) state.sens[base]=v;
    if(x > threshold) state.sens[base+1]=v;
