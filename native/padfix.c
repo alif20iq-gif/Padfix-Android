@@ -31,6 +31,9 @@
 #define PORT 8765
 #define SHOT "/sdcard/Pictures/Padfix/Padfix-latest.png"
 #define RECORD_DIR "/sdcard/Movies/Padfix"
+#ifndef PADFIX_PERSISTENT
+#define PADFIX_PERSISTENT 1
+#endif
 
 static volatile sig_atomic_t running = 1;
 static volatile int cfg_margin = 600, cfg_min_dz = 1500, cfg_kp = 0;
@@ -312,6 +315,9 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     }
     int fd=open(path,O_RDONLY|O_NONBLOCK);
     if(fd<0)return 1;
+#if !PADFIX_PERSISTENT
+    if(create_virtual_device()<0){fprintf(stderr,"[VIRTUAL] gagal membuat gamepad untuk sesi controller.\\n");close(fd);return 1;}
+#endif
 
     unsigned long keybits[NB(KEY_MAX+1)],absbits[NB(ABS_MAX+1)];
     memset(keybits,0,sizeof keybits);memset(absbits,0,sizeof absbits);
@@ -485,6 +491,14 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     release_virtual_inputs();
     live_conn=0;live_grab=0;live_cal=0;live_state=4;
     ioctl(fd,EVIOCGRAB,0);close(fd);
+#if !PADFIX_PERSISTENT
+    pthread_mutex_lock(&um);
+    int session_u=ufd; ufd=-1;
+    pthread_mutex_unlock(&um);
+    if(session_u>=0){ioctl(session_u,UI_DEV_DESTROY);close(session_u);}
+    virtual_active=0;
+    printf("[VIRTUAL] gamepad sesi dihentikan karena controller fisik terputus.\\n");
+#endif
     return ret;
 }
 
@@ -747,14 +761,21 @@ int main(int argc, char **argv) {
     printf("Dashboard: http://127.0.0.1:%d/?t=%s\n", PORT, token);
     fflush(stdout); // MainActivity reads this line from the startup log to open the tokenized URL.
     if (demo) { while (running) sleep(1); pthread_join(th, NULL); return 0; }
+#if PADFIX_PERSISTENT
     if (!demo && create_virtual_device() < 0) {
         fprintf(stderr, "[VIRTUAL] gagal membuat virtual gamepad persisten; backend dihentikan.\n");
         running=0; pthread_join(th,NULL); return 1;
     }
+#else
+    /* Mode non-persistent: virtual gamepad dibuat saat controller fisik tersambung. */
+#endif
     live_state=0;
     pthread_t keepalive_thread;
-    int keepalive_started=pthread_create(&keepalive_thread,NULL,r3_keepalive_main,NULL)==0;
+    int keepalive_started=0;
+#if PADFIX_PERSISTENT
+    keepalive_started=pthread_create(&keepalive_thread,NULL,r3_keepalive_main,NULL)==0;
     if(!keepalive_started)fprintf(stderr,"[VIRTUAL] gagal menjalankan thread R3 keep-alive.\\n");
+#endif
     int announced = 0;
     while (running) {
         int r = session(fixed, cal_ms, &announced);

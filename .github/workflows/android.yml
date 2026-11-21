@@ -2,7 +2,7 @@ name: Build Padfix Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, "build/**"]
   workflow_dispatch:
 
 permissions:
@@ -10,6 +10,14 @@ permissions:
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: persistent
+            persistent: 1
+          - variant: non-persistent
+            persistent: 0
     runs-on: ubuntu-24.04
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -45,7 +53,7 @@ jobs:
         run: |
           mkdir -p app/src/main/assets
           "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android23-clang" \
-            -O2 -fPIE -pie -pthread native/padfix.c \
+            -O2 -fPIE -pie -pthread -DPADFIX_PERSISTENT=${{ matrix.persistent }} native/padfix.c \
             -o app/src/main/assets/padfix
           file app/src/main/assets/padfix
 
@@ -74,6 +82,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Padfix-Android-${{ steps.build.outputs.build_type }}
+          name: Padfix-Android-${{ matrix.variant }}-${{ steps.build.outputs.build_type }}
           path: ${{ steps.build.outputs.apk_path }}
           if-no-files-found: error
