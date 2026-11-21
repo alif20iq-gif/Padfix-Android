@@ -339,8 +339,8 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                         long so = (long)off * 100 / (pct > 0 ? pct : 100);
                         if (so > half[i]) so = half[i];
                         if (so < -half[i]) so = -half[i];
-                        int ox=(i==0||i==2)?(int)so:axis_offset[i-1];
-                        int oy=(i==1||i==3)?(int)so:axis_offset[i+1];
+                        int ox=(i==0||i==2)?(int)so:live_fixed[i-1];
+                        int oy=(i==1||i==3)?(int)so:live_fixed[i+1];
                         int ax=ox<0?-ox:ox, ay=oy<0?-oy:oy, dir;
                         if(ax*2<ay) dir=oy<0?0:1; else if(ay*2<ax) dir=ox<0?2:3;
                         else if(ox>=0&&oy<0) dir=4; else if(ox<0&&oy<0) dir=5;
@@ -348,17 +348,17 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                         int di=(i<2?0:8)+dir, radius=ax>ay?ax:ay; if(radius>half[i])radius=half[i];
                         int power=dir_min[di]+(int)((long)(dir_max[di]-dir_min[di])*radius/(half[i]>0?half[i]:1));
                         so=so*power/100; if(so>half[i])so=half[i]; if(so< -half[i])so= -half[i];
-                        axis_offset[i] = (int)so;
+                        live_fixed[i] = (int)so;
                         if (i == 0 || i == 1) {
                             int stick_half = half[0] < half[1] ? half[0] : half[1];
-                            update_left_stick_dpad(axis_offset[0], axis_offset[1],
+                            update_left_stick_dpad(live_fixed[0], live_fixed[1],
                                                    stick_half, analog_dpad_state,
                                                    out_ev, &out_count);
                         }
                         out = scale_axis(oc[i] + (int)so, lo[i], hi[i]);
                         live_dz[i] = dz;
                     }
-                    live_fixed[i] = scale_axis(oc[i] + (calibrating ? 0 : axis_offset[i]), lo[i], hi[i]);
+                    if (calibrating) live_fixed[i] = 0;
                     e.code = AX[i];
                     if (out == last[i]) continue;
                     last[i] = out; e.value = out;
