@@ -560,6 +560,13 @@ static void capture_button_event(int value) {
     }else if(!value&&capture_down){capture_down=0;if(capture_long_fired)capture_last_tap_ms=0;}
 }
 static void capture_button_tick(void) {
+    if(recording&&recorder_pid>0){
+        int st;pid_t w=waitpid(recorder_pid,&st,WNOHANG);
+        if(w==recorder_pid||(w<0&&errno==ECHILD)){
+            recorder_pid=-1;recording=0;
+            printf("[CAPTURE] SCREEN_RECORD_FINISHED: %s\n",recording_path);
+        }
+    }
     if(capture_down&&!capture_long_fired&&now_ms()-capture_press_ms>=2500){capture_long_fired=1;capture_last_tap_ms=0;
         if(toggle_screen_recording()<0)fprintf(stderr,"[CAPTURE] gagal mengendalikan screenrecord.\n");}
 }
