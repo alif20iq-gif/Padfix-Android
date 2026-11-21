@@ -400,39 +400,34 @@ static int run_system_screenshot(void) {
     return -1;
 }
 
-static int toggle_capture_recording(void) {
-    if (capture_recording && capture_recorder_pid > 0) {
-        kill(capture_recorder_pid, SIGINT);
-        int done = 0;
-        for (int i = 0; i < 40; i++) {
-            int st;
-            pid_t w = waitpid(capture_recorder_pid, &st, WNOHANG);
-            if (w == capture_recorder_pid || (w < 0 && errno == ECHILD)) { done = 1; break; }
-            usleep(25000);
-        }
-        if (!done) { kill(capture_recorder_pid, SIGTERM); waitpid(capture_recorder_pid, NULL, 0); }
-        capture_recorder_pid = -1; capture_recording = 0;
-        printf("[CAPTURE] SCREEN_RECORD_STOPPED: %s\\n", capture_recording_path);
-        return 0;
-    }
-    time_t now = time(NULL);
-    struct tm tmv;
-    localtime_r(&now, &tmv);
-    char stamp[40];
-    strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &tmv);
-    snprintf(capture_recording_path, sizeof capture_recording_path,
-             "/sdcard/Movies/Padfix-%s.mp4", stamp);
+// Buka activity perekam bawaan TECNO. Perekaman harus dimulai/dihentikan
+// dari UI aplikasi agar indikator, timer, dan notifikasi sistemnya dikelola
+// oleh aplikasi perekam, bukan oleh utilitas screenrecord milik Padfix.
+static int open_native_recorder(void) {
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
-        int nl = open("/dev/null", O_RDWR);
-        if (nl >= 0) { dup2(nl, 1); dup2(nl, 2); if (nl > 2) close(nl); }
-        execl("/system/bin/screenrecord", "screenrecord", capture_recording_path, (char *)NULL);
+        execl("/system/bin/am", "am", "start",
+              "-a", "android.intent.action.MAIN",
+              "-c", "android.intent.category.LAUNCHER",
+              "-p", "com.transsion.screenrecorder", (char *)NULL);
         _exit(127);
     }
-    capture_recorder_pid = pid; capture_recording = 1;
-    printf("[CAPTURE] SCREEN_RECORD_STARTED: %s\\n", capture_recording_path);
-    return 0;
+    int st = 0;
+    for (int i = 0; i < 80; i++) {
+        pid_t w = waitpid(pid, &st, WNOHANG);
+        if (w == pid) {
+            if (WIFEXITED(st) && WEXITSTATUS(st) == 0) {
+                printf("[CAPTURE] NATIVE_RECORDER_ACTIVITY_OPENED\\n");
+                return 0;
+            }
+            return -1;
+        }
+        usleep(25000);
+    }
+    kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
+    return -1;
 }
 
 static void capture_click_tick(void) {
@@ -442,8 +437,8 @@ static void capture_click_tick(void) {
         if (clicks == 2) {
             if (run_system_screenshot() == 0) printf("[CAPTURE] SYSTEM_SCREENSHOT_TRIGGERED\\n");
             else fprintf(stderr, "[CAPTURE] Gagal memicu screenshot sistem.\\n");
-        } else if (clicks >= 3 && toggle_capture_recording() < 0) {
-            fprintf(stderr, "[CAPTURE] Gagal mengendalikan screenrecord.\\n");
+         } else if (clicks >= 3 && open_native_recorder() < 0) {
+            fprintf(stderr, "[CAPTURE] Gagal membuka aplikasi perekam TECNO (com.transsion.screenrecorder).\\n");
         }
     }
     if (capture_recording && capture_recorder_pid > 0) {
