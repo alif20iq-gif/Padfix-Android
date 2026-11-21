@@ -34,6 +34,7 @@ static volatile sig_atomic_t running = 1;
 static volatile int cfg_margin = 600, cfg_min_dz = 1500, cfg_kp = 0;
 // sens[axis*2+0/-1] = faktor jangkauan per arah; 50% memberi power 2x, 100% normal, 200% memberi power 0.5x.
 static volatile int sens[8] = {100,100,100,100,100,100,100,100};
+static volatile int stick_power[2] = {100,100};
 // Offset manual per axis: koreksi titik tengah hasil kalibrasi.
 static volatile int cfg_offset[4] = {0,0,0,0};
 static volatile int live_raw[4], live_fixed[4], live_center[4], live_dz[4];
@@ -47,6 +48,9 @@ static const char *www = "/data/local/tmp/padfix_index.html";
 static const char *match = "Pro Controller";
 static const int AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
 static unsigned char pressed_key[KEY_MAX + 1];
+static int capture_clicks = 0;
+static int64_t capture_last_click_ms = 0;
+static void capture_click_tick(void);
 
 static const char *config_path = "/data/local/tmp/padfix.conf";
 static void save_config(void) {
@@ -69,6 +73,24 @@ static void load_config(void) {
         for(int i=0;i<4;i++)cfg_offset[i]=o[i];
         printf("Konfigurasi terakhir dipulihkan.\n");
     }
+}
+
+/* Disimpan terpisah supaya file konfigurasi dari revisi eksperimen lama
+   tidak terbaca keliru sebagai nilai power saat migrasi. */
+static const char *power_config_path = "/data/local/tmp/padfix-power.conf";
+static void save_power_config(void) {
+    char tmp[112]; snprintf(tmp,sizeof tmp,"%s.tmp",power_config_path);
+    FILE *f=fopen(tmp,"w"); if(!f)return;
+    fprintf(f,"%d %d\n",stick_power[0],stick_power[1]);
+    if(fclose(f)==0){if(rename(tmp,power_config_path)!=0)unlink(tmp);}else unlink(tmp);
+}
+static void load_power_config(void) {
+    FILE *f=fopen(power_config_path,"r"); if(!f)return;
+    int left=100,right=100;
+    int ok=fscanf(f,"%d%d",&left,&right)==2 &&
+        left>=50 && left<=200 && right>=50 && right<=200;
+    fclose(f);
+    if(ok){stick_power[0]=left;stick_power[1]=right;}
 }
 
 
@@ -218,12 +240,18 @@ static int session(const char *fixed, int cal_ms, int *announced) {
             }
             have_cal = 1; calibrating = 0; live_cal = 1; fflush(stdout);
         }
+        capture_click_tick();
         struct pollfd p = {fd, POLLIN, 0};
-        int r = poll(&p, 1, calibrating ? 100 : 500);
+        int timeout = calibrating ? 100 : 500;
+        if (capture_clicks > 0) {
+            int64_t remain = 651 - (now_ms() - capture_last_click_ms);
+            if (remain < timeout) timeout = remain > 0 ? (int)remain : 0;
+        }
+        int r = poll(&p, 1, timeout);
         if (r < 0 && errno != EINTR) break;
         if (r <= 0) continue;
         if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) break;
-        struct input_event ev[64], out_ev[64];
+        struct input_event ev[64], out_ev[128];
         ssize_t n = read(fd, ev, sizeof ev);
         if (n < 0) { if (errno == EAGAIN || errno == EINTR) continue; break; }   // ENODEV = dilepas
         size_t out_count = 0;
@@ -258,6 +286,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                         int pct = sens[i * 2 + (off < 0 ? 0 : 1)];
                         /* Sensitivitas arah: nilai lebih kecil memperkuat power; 50%=2x, 100%=1x, 200%=0.5x. */
                         long so = (long)off * 100 / (pct > 0 ? pct : 100);
+                        so = so * stick_power[i / 2] / 100;
                         if (so > half[i]) so = half[i];
                         if (so < -half[i]) so = -half[i];
                         out = oc[i] + (int)so;
@@ -269,9 +298,19 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                 }
                 if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
             } else if (e.type == EV_KEY) {
-                // PASS-THROUGH MURNI: tombol fisik tidak di-remap, difilter,
-                // atau diubah nilainya. Padfix hanya memproses ABS_X/Y/RX/RY.
+                // BTN_Z (Capture): 2 klik = screenshot sistem; 3 klik = tile perekam TECNO.
+                // Dihitung dari event tekan (bukan tahan) dan tidak diteruskan ke game.
                 last_key = e.code;
+                if (e.code == BTN_Z) {
+                    if (e.value == 1) {
+                        int64_t now = now_ms();
+                        capture_clicks = (capture_clicks == 0 || now - capture_last_click_ms > 650)
+                            ? 1 : capture_clicks + 1;
+                        capture_last_click_ms = now;
+                    }
+                    if (e.code <= KEY_MAX) pressed_key[e.code] = 0;
+                    continue;
+                }
                 if (e.code <= KEY_MAX) pressed_key[e.code] = (e.value != 0);
                 if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
             } else {
@@ -359,6 +398,76 @@ static int take_shot(void) {
     }
     kill(pid, SIGKILL); waitpid(pid, NULL, 0); return -1;
 }
+static int run_system_screenshot(void) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execl("/system/bin/input", "input", "keyevent", "120", (char *)NULL);
+        _exit(127);
+    }
+    int st = 0;
+    for (int i = 0; i < 40; i++) {
+        pid_t w = waitpid(pid, &st, WNOHANG);
+        if (w == pid) return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : -1;
+        usleep(25000);
+    }
+    kill(pid, SIGKILL); waitpid(pid, NULL, 0);
+    return -1;
+}
+
+// Buka activity perekam bawaan TECNO. Perekaman harus dimulai/dihentikan
+// dari UI aplikasi agar indikator, timer, dan notifikasi sistemnya dikelola
+// oleh aplikasi perekam, bukan oleh utilitas screenrecord milik Padfix.
+// Prioritaskan Quick Settings tile screen recorder milik sistem/TECNO.
+// TileService adalah jalur yang sama dengan tombol Screen Record di panel cepat,
+// sehingga UI izin, countdown, indikator, dan notifikasi dikelola oleh SystemUI/OEM.
+static int open_native_recorder(void) {
+    static const char script[] =
+        "SERVICES=$(cmd package query-services --components -a android.service.quicksettings.action.QS_TILE 2>/dev/null); "
+        "COMP=$(printf '%s\\n' \"$SERVICES\" | grep -i '^com\\.transsion\\.screenrecorder/' | head -n 1); "
+        "if [ -z \"$COMP\" ]; then COMP=$(printf '%s\\n' \"$SERVICES\" | grep -i 'screen.?record' | head -n 1); fi; "
+        "if [ -n \"$COMP\" ]; then "
+        "cmd statusbar click-tile \"$COMP\" >/dev/null 2>&1 && exit 0; "
+        "cmd statusbar add-tile \"$COMP\" >/dev/null 2>&1; "
+        "cmd statusbar click-tile \"$COMP\" >/dev/null 2>&1 && exit 0; "
+        "fi; "
+        "monkey -p com.transsion.screenrecorder 1 >/dev/null 2>&1";
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execl("/system/bin/sh", "sh", "-c", script, (char *)NULL);
+        _exit(127);
+    }
+    int st = 0;
+    for (int i = 0; i < 100; i++) {
+        pid_t w = waitpid(pid, &st, WNOHANG);
+        if (w == pid) {
+            if (WIFEXITED(st) && WEXITSTATUS(st) == 0) {
+                printf("[CAPTURE] NATIVE_RECORDER_TILE_OR_ACTIVITY_TRIGGERED\\n");
+                return 0;
+            }
+            return -1;
+        }
+        usleep(25000);
+    }
+    kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
+    return -1;
+}
+
+static void capture_click_tick(void) {
+    if (capture_clicks > 0 && now_ms() - capture_last_click_ms > 650) {
+        int clicks = capture_clicks;
+        capture_clicks = 0;
+        if (clicks == 2) {
+            if (run_system_screenshot() == 0) printf("[CAPTURE] SYSTEM_SCREENSHOT_TRIGGERED\\n");
+            else fprintf(stderr, "[CAPTURE] Gagal memicu screenshot sistem.\\n");
+         } else if (clicks >= 3 && open_native_recorder() < 0) {
+            fprintf(stderr, "[CAPTURE] Gagal membuka aplikasi perekam TECNO (com.transsion.screenrecorder).\\n");
+        }
+    }
+}
+
 static char *slurp(const char *path, size_t *len, size_t max) {
     FILE *f = fopen(path, "rb"); if (!f) return NULL;
     fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
@@ -373,8 +482,8 @@ static void send_status(int c) {
     A("{\"running\":%s,\"connected\":%s,\"grabbed\":%s,\"calibrated\":%s,\"name\":\"%s\",\"margin\":%d,\"min_dz\":%d,\"kp\":%d,\"last_key\":%d,\"sens\":[",
       running ? "true" : "false", live_conn ? "true" : "false", live_grab ? "true" : "false", live_cal ? "true" : "false", dev_name, cfg_margin, cfg_min_dz, cfg_kp, last_key);
     for (int i = 0; i < 8; i++) A("%s%d", i ? "," : "", sens[i]);
-    A("],\"offset\":[%d,%d,%d,%d],\"raw\":[%d,%d,%d,%d],\"fixed\":[%d,%d,%d,%d],\"center\":[%d,%d,%d,%d],\"deadzone\":[%d,%d,%d,%d],\"buttons\":[",
-      cfg_offset[0], cfg_offset[1], cfg_offset[2], cfg_offset[3], live_raw[0], live_raw[1], live_raw[2], live_raw[3], live_fixed[0], live_fixed[1], live_fixed[2], live_fixed[3],
+    A("],\"power\":[%d,%d],\"offset\":[%d,%d,%d,%d],\"raw\":[%d,%d,%d,%d],\"fixed\":[%d,%d,%d,%d],\"center\":[%d,%d,%d,%d],\"deadzone\":[%d,%d,%d,%d],\"buttons\":[",
+      stick_power[0], stick_power[1], cfg_offset[0], cfg_offset[1], cfg_offset[2], cfg_offset[3], live_raw[0], live_raw[1], live_raw[2], live_raw[3], live_fixed[0], live_fixed[1], live_fixed[2], live_fixed[3],
       live_center[0], live_center[1], live_center[2], live_center[3], live_dz[0], live_dz[1], live_dz[2], live_dz[3]);
     int first = 1;
     for (int k = 1; k <= KEY_MAX; k++) if (have_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
@@ -408,7 +517,7 @@ static void handle(int c) {
         size_t len; char *img = slurp(SHOT, &len, 16u << 20);
         if (img) { reply(c, "200 OK", "image/png", img, len); free(img); } else jreply(c, "404 Not Found", "{\"error\":\"belum ada screenshot\"}");
     } else if (post && !strcmp(path, "/api/config")) {
-        int a[8], off[4];
+        int a[8], off[4], power_changed = 0;
         if (json_int(body, "margin", &v) && v >= 0 && v <= 30000) cfg_margin = v;
         if (json_int(body, "min_dz", &v) && v >= 0 && v <= 30000) cfg_min_dz = v;
         if (json_int(body, "kp", &v) && v >= 0 && v <= 100) cfg_kp = v;
@@ -418,13 +527,18 @@ static void handle(int c) {
         if (json_arr(body, "offset", off, 4)) { int ok = 1; for (int i = 0; i < 4; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 4; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetL", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetR", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i + 2] = off[i]; }
+        if (json_int(body, "powerL", &v) && v >= 50 && v <= 200) { stick_power[0] = v; power_changed = 1; }
+        if (json_int(body, "powerR", &v) && v >= 50 && v <= 200) { stick_power[1] = v; power_changed = 1; }
         save_config();
+        if (power_changed) save_power_config();
         jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/reset")) {
         cfg_margin = 600; cfg_min_dz = 1500; cfg_kp = 0;
         for (int i = 0; i < 8; i++) sens[i] = 100;
         for (int i = 0; i < 4; i++) cfg_offset[i] = 0;
+        stick_power[0] = stick_power[1] = 100;
         save_config();
+        save_power_config();
         jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/recal")) { want_recal = 1; jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/screenshot")) {
@@ -468,6 +582,7 @@ int main(int argc, char **argv) {
         else if (opt == 'd') demo = 1;
     }
     load_config();
+    load_power_config();
     signal(SIGINT, on_sig); signal(SIGTERM, on_sig); signal(SIGHUP, SIG_IGN); signal(SIGPIPE, SIG_IGN);
     unsigned char rnd[8] = {0};
     int rf = open("/dev/urandom", O_RDONLY);
