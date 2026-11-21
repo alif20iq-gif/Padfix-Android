@@ -2,7 +2,7 @@ name: Build Padfix Android APK
 
 on:
   push:
-    branches: [main, "feature/stable-analog-power-oem-capture-ui", "fix/manual-calibration-precision"]
+    branches: [main, "feature/stable-analog-power-oem-capture-ui", "fix/manual-calibration-precision", "development/auto-apply-calibration"]
   workflow_dispatch:
 
 permissions:
