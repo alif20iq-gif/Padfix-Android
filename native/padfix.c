@@ -133,31 +133,7 @@ static void emit_batch(const struct input_event *events, size_t count) {
     pthread_mutex_unlock(&um);
 }
 
-// Ubah arah stik kiri menjadi tombol D-pad virtual untuk menu yang tidak
-// membaca sumbu analog. Histeresis mencegah tombol berkedip di sekitar ambang.
-static void update_left_stick_dpad(int x, int y, int half,
-                                   int state[4],
-                                   struct input_event *out, size_t *count) {
-    const int press = half * 35 / 100;
-    const int release = half * 22 / 100;
-    const int value[4] = { y, y, x, x };
-    const int active[4] = { value[0] < -press, value[1] > press,
-                            value[2] < -press, value[3] > press };
-    const int released[4] = { value[0] > -release, value[1] < release,
-                              value[2] > -release, value[3] < release };
-    const int keys[4] = { BTN_DPAD_UP, BTN_DPAD_DOWN,
-                          BTN_DPAD_LEFT, BTN_DPAD_RIGHT };
-    for (int i = 0; i < 4; i++) {
-        int next = state[i] ? !released[i] : active[i];
-        if (next == state[i]) continue;
-        if (*count >= 128) break;
-        struct input_event e;
-        memset(&e, 0, sizeof e);
-        e.type = EV_KEY; e.code = keys[i]; e.value = next;
-        out[(*count)++] = e;
-        state[i] = next;
-    }
-}
+
 
 static int find_pad(char *out, size_t n) {
     for (int i = 0; i < 64; i++) {
@@ -272,7 +248,6 @@ static int session(const char *fixed, int cal_ms, int *announced) {
         printf("Kalibrasi %d ms: LEPAS kedua stik...\n", cal_ms); fflush(stdout);
     } else live_cal = 1;
     for (int i = 0; i < 4; i++) last[i] = 0;
-    int analog_dpad_state[4] = {0,0,0,0};
 
     int ret = 1;
     while (running) {
@@ -348,12 +323,6 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                         int power=dir_min[di]+(int)((long)(dir_max[di]-dir_min[di])*radius/(half[i]>0?half[i]:1));
                         so=so*power/100; if(so>half[i])so=half[i]; if(so< -half[i])so= -half[i];
                         live_fixed[i] = (int)so;
-                        if (i == 0 || i == 1) {
-                            int stick_half = half[0] < half[1] ? half[0] : half[1];
-                            update_left_stick_dpad(live_fixed[0], live_fixed[1],
-                                                   stick_half, analog_dpad_state,
-                                                   out_ev, &out_count);
-                        }
                         out = scale_axis(oc[i] + (int)so, lo[i], hi[i]);
                         live_dz[i] = dz;
                     }
