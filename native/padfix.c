@@ -766,10 +766,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[VIRTUAL] gagal membuat virtual gamepad persisten; backend dihentikan.\n");
         running=0; pthread_join(th,NULL); return 1;
     }
-    live_state=0;
-    pthread_t keepalive_thread;
-    int keepalive_started=pthread_create(&keepalive_thread,NULL,r3_keepalive_main,NULL)==0;
-    if(!keepalive_started)fprintf(stderr,"[VIRTUAL] gagal menjalankan thread R3 keep-alive.\\n");
 #else
     /* Mode non-persistent: virtual gamepad dibuat saat controller fisik tersambung. */
 #endif
