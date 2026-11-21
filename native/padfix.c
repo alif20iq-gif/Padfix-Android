@@ -49,6 +49,11 @@ static const char *www = "/data/local/tmp/padfix_index.html";
 static const char *match = "Pro Controller";
 static const int AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
 static unsigned char pressed_key[KEY_MAX + 1];
+static int capture_clicks = 0;
+static int64_t capture_last_click_ms = 0;
+static int capture_recording = 0;
+static pid_t capture_recorder_pid = -1;
+static char capture_recording_path[256] = "";
 
 static const char *config_path = "/data/local/tmp/padfix.conf";
 static void save_config(void) {
@@ -225,8 +230,14 @@ static int session(const char *fixed, int cal_ms, int *announced) {
             }
             have_cal = 1; calibrating = 0; live_cal = 1; fflush(stdout);
         }
+        capture_click_tick();
         struct pollfd p = {fd, POLLIN, 0};
-        int r = poll(&p, 1, calibrating ? 100 : 500);
+        int timeout = calibrating ? 100 : 500;
+        if (capture_clicks > 0) {
+            int64_t remain = 651 - (now_ms() - capture_last_click_ms);
+            if (remain < timeout) timeout = remain > 0 ? (int)remain : 0;
+        }
+        int r = poll(&p, 1, timeout);
         if (r < 0 && errno != EINTR) break;
         if (r <= 0) continue;
         if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) break;
@@ -287,11 +298,21 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                 }
                 out_ev[out_count++] = e;
             } else if (e.type == EV_KEY) {
-                // PASS-THROUGH MURNI: tombol fisik tidak di-remap, difilter,
-                // atau diubah nilainya. Padfix hanya memproses ABS_X/Y/RX/RY.
+                // BTN_Z adalah Capture: 2 klik = screenshot sistem, 3 klik = toggle rekaman.
+                // Event ini sengaja tidak diteruskan ke game agar tidak memicu aksi game.
                 last_key = e.code;
+                if (e.code == BTN_Z) {
+                    if (e.value == 1) {
+                        int64_t now = now_ms();
+                        capture_clicks = (capture_clicks == 0 || now - capture_last_click_ms > 650)
+                            ? 1 : capture_clicks + 1;
+                        capture_last_click_ms = now;
+                    }
+                    if (e.code <= KEY_MAX) pressed_key[e.code] = 0;
+                    continue;
+                }
                 if (e.code <= KEY_MAX) pressed_key[e.code] = (e.value != 0);
-                if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
+                out_ev[out_count++] = e;
             } else {
                 // Semua event selain empat sumbu analog dan HAT D-pad diteruskan apa adanya.
                 if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
@@ -359,6 +380,79 @@ static int json_arr(const char *b, const char *key, int *v, int n) {
         v[i] = x; p += used; if (i < n - 1) { p = strchr(p, ','); if (!p) return 0; }
     }
     return 1;
+}
+
+static int run_system_screenshot(void) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execl("/system/bin/input", "input", "keyevent", "120", (char *)NULL);
+        _exit(127);
+    }
+    int st = 0;
+    for (int i = 0; i < 40; i++) {
+        pid_t w = waitpid(pid, &st, WNOHANG);
+        if (w == pid) return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : -1;
+        usleep(25000);
+    }
+    kill(pid, SIGKILL); waitpid(pid, NULL, 0);
+    return -1;
+}
+
+static int toggle_capture_recording(void) {
+    if (capture_recording && capture_recorder_pid > 0) {
+        kill(capture_recorder_pid, SIGINT);
+        int done = 0;
+        for (int i = 0; i < 40; i++) {
+            int st;
+            pid_t w = waitpid(capture_recorder_pid, &st, WNOHANG);
+            if (w == capture_recorder_pid || (w < 0 && errno == ECHILD)) { done = 1; break; }
+            usleep(25000);
+        }
+        if (!done) { kill(capture_recorder_pid, SIGTERM); waitpid(capture_recorder_pid, NULL, 0); }
+        capture_recorder_pid = -1; capture_recording = 0;
+        printf("[CAPTURE] SCREEN_RECORD_STOPPED: %s\\n", capture_recording_path);
+        return 0;
+    }
+    time_t now = time(NULL);
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    char stamp[40];
+    strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &tmv);
+    snprintf(capture_recording_path, sizeof capture_recording_path,
+             "/sdcard/Movies/Padfix-%s.mp4", stamp);
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        int nl = open("/dev/null", O_RDWR);
+        if (nl >= 0) { dup2(nl, 1); dup2(nl, 2); if (nl > 2) close(nl); }
+        execl("/system/bin/screenrecord", "screenrecord", capture_recording_path, (char *)NULL);
+        _exit(127);
+    }
+    capture_recorder_pid = pid; capture_recording = 1;
+    printf("[CAPTURE] SCREEN_RECORD_STARTED: %s\\n", capture_recording_path);
+    return 0;
+}
+
+static void capture_click_tick(void) {
+    if (capture_clicks > 0 && now_ms() - capture_last_click_ms > 650) {
+        int clicks = capture_clicks;
+        capture_clicks = 0;
+        if (clicks == 2) {
+            if (run_system_screenshot() == 0) printf("[CAPTURE] SYSTEM_SCREENSHOT_TRIGGERED\\n");
+            else fprintf(stderr, "[CAPTURE] Gagal memicu screenshot sistem.\\n");
+        } else if (clicks >= 3 && toggle_capture_recording() < 0) {
+            fprintf(stderr, "[CAPTURE] Gagal mengendalikan screenrecord.\\n");
+        }
+    }
+    if (capture_recording && capture_recorder_pid > 0) {
+        int st;
+        pid_t w = waitpid(capture_recorder_pid, &st, WNOHANG);
+        if (w == capture_recorder_pid || (w < 0 && errno == ECHILD)) {
+            capture_recorder_pid = -1; capture_recording = 0;
+            printf("[CAPTURE] SCREEN_RECORD_FINISHED: %s\\n", capture_recording_path);
+        }
+    }
 }
 
 static int take_shot(void) {
