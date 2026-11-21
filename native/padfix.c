@@ -441,8 +441,9 @@ static int run_system_screenshot(void) {
 // sehingga UI izin, countdown, indikator, dan notifikasi dikelola oleh SystemUI/OEM.
 static int open_native_recorder(void) {
     static const char script[] =
-        "COMP=$(cmd package query-services --components -a android.service.quicksettings.action.QS_TILE 2>/dev/null | "
-        "grep -iE 'com\\.transsion\\.screenrecorder/|screen.?record' | head -n 1); "
+        "SERVICES=$(cmd package query-services --components -a android.service.quicksettings.action.QS_TILE 2>/dev/null); "
+        "COMP=$(printf '%s\\n' \"$SERVICES\" | grep -i '^com\\.transsion\\.screenrecorder/' | head -n 1); "
+        "if [ -z \"$COMP\" ]; then COMP=$(printf '%s\\n' \"$SERVICES\" | grep -i 'screen.?record' | head -n 1); fi; "
         "if [ -n \"$COMP\" ]; then "
         "cmd statusbar click-tile \"$COMP\" >/dev/null 2>&1 && exit 0; "
         "cmd statusbar add-tile \"$COMP\" >/dev/null 2>&1; "
