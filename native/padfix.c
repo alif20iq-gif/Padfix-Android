@@ -436,22 +436,31 @@ static int run_system_screenshot(void) {
 // Buka activity perekam bawaan TECNO. Perekaman harus dimulai/dihentikan
 // dari UI aplikasi agar indikator, timer, dan notifikasi sistemnya dikelola
 // oleh aplikasi perekam, bukan oleh utilitas screenrecord milik Padfix.
+// Prioritaskan Quick Settings tile screen recorder milik sistem/TECNO.
+// TileService adalah jalur yang sama dengan tombol Screen Record di panel cepat,
+// sehingga UI izin, countdown, indikator, dan notifikasi dikelola oleh SystemUI/OEM.
 static int open_native_recorder(void) {
+    static const char script[] =
+        "COMP=$(cmd package query-services --components -a android.service.quicksettings.action.QS_TILE 2>/dev/null | "
+        "grep -iE 'com\\.transsion\\.screenrecorder/|screen.?record' | head -n 1); "
+        "if [ -n \"$COMP\" ]; then "
+        "cmd statusbar click-tile \"$COMP\" >/dev/null 2>&1 && exit 0; "
+        "cmd statusbar add-tile \"$COMP\" >/dev/null 2>&1; "
+        "cmd statusbar click-tile \"$COMP\" >/dev/null 2>&1 && exit 0; "
+        "fi; "
+        "monkey -p com.transsion.screenrecorder 1 >/dev/null 2>&1";
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
-        execl("/system/bin/am", "am", "start",
-              "-a", "android.intent.action.MAIN",
-              "-c", "android.intent.category.LAUNCHER",
-              "-p", "com.transsion.screenrecorder", (char *)NULL);
+        execl("/system/bin/sh", "sh", "-c", script, (char *)NULL);
         _exit(127);
     }
     int st = 0;
-    for (int i = 0; i < 80; i++) {
+    for (int i = 0; i < 100; i++) {
         pid_t w = waitpid(pid, &st, WNOHANG);
         if (w == pid) {
             if (WIFEXITED(st) && WEXITSTATUS(st) == 0) {
-                printf("[CAPTURE] NATIVE_RECORDER_ACTIVITY_OPENED\\n");
+                printf("[CAPTURE] NATIVE_RECORDER_TILE_OR_ACTIVITY_TRIGGERED\\n");
                 return 0;
             }
             return -1;
