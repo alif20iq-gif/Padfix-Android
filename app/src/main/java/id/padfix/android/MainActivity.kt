@@ -1,9 +1,14 @@
 package id.padfix.android
 
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -15,6 +20,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import rikka.shizuku.Shizuku
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
 import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
@@ -22,6 +30,9 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
     @Volatile private var starting = false
     @Volatile private var dashboardLoaded = false
+    @Volatile private var notificationPollActive = false
+    @Volatile private var lastCalibrationStatus = ""
+    private val notifierHandler = Handler(Looper.getMainLooper())
 
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == REQUEST_CODE) {
@@ -35,6 +46,7 @@ class MainActivity : Activity() {
         window.statusBarColor = Color.rgb(11, 16, 32)
         window.navigationBarColor = Color.rgb(11, 16, 32)
         Shizuku.addRequestPermissionResultListener(permissionListener)
+        createCalibrationNotificationChannel()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(11, 16, 32))
@@ -115,6 +127,7 @@ class MainActivity : Activity() {
                     val url = Regex("http://127\\.0\\.0\\.1:8765/\\?t=[0-9a-fA-F]{16}").find(output)?.value
                     if (url != null) {
                         dashboardLoaded = true
+                        startBackendStateNotifications(url)
                         web.loadUrl(url)
                         setStatus(if (output.contains("Konfigurasi terakhir dipulihkan"))
                             "Padfix aktif — konfigurasi terakhir dipulihkan."
@@ -131,9 +144,98 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun createCalibrationNotificationChannel() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL,
+                "Status kalibrasi gamepad",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Pemberitahuan singkat saat gamepad fisik tersambung dan selesai dikalibrasi"
+                setShowBadge(false)
+            }
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
+    }
+
+    private fun startBackendStateNotifications(dashboardUrl: String) {
+        val token = android.net.Uri.parse(dashboardUrl).getQueryParameter("t") ?: return
+        notificationPollActive = true
+        lastCalibrationStatus = ""
+        pollBackendState(token)
+    }
+
+    private fun pollBackendState(token: String) {
+        if (!notificationPollActive) return
+        thread(name = "Padfix-state-notifier") {
+            var calibration = ""
+            var physical = ""
+            try {
+                val connection = (URL("http://127.0.0.1:8765/api/status").openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 900
+                    readTimeout = 900
+                    requestMethod = "GET"
+                    setRequestProperty("X-Token", token)
+                    setRequestProperty("Cache-Control", "no-cache")
+                }
+                try {
+                    val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                    calibration = json.optString("calibrationStatus", "")
+                    physical = json.optString("physicalStatus", "")
+                } finally {
+                    connection.disconnect()
+                }
+            } catch (_: Exception) {
+                // Backend mungkin sedang restart atau sedang dihentikan.
+            }
+            runOnUiThread {
+                if (!notificationPollActive) return@runOnUiThread
+                when (calibration) {
+                    "CALIBRATION_IN_PROGRESS" -> {
+                        if (lastCalibrationStatus != calibration) showCalibrationNotification(false)
+                        lastCalibrationStatus = calibration
+                    }
+                    "CALIBRATION_COMPLETE" -> {
+                        if (lastCalibrationStatus != calibration) showCalibrationNotification(true)
+                        lastCalibrationStatus = calibration
+                    }
+                    else -> {
+                        if (physical == "PHYSICAL_GAMEPAD_DISCONNECTED") {
+                            getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+                        }
+                        lastCalibrationStatus = calibration
+                    }
+                }
+                notifierHandler.postDelayed({ pollBackendState(token) }, 850)
+            }
+        }
+    }
+
+    private fun showCalibrationNotification(complete: Boolean) {
+        val builder = Notification.Builder(this, NOTIFICATION_CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle(if (complete) "KALIBRASI SELESAI" else "GAMEPAD TERHUBUNG")
+            .setContentText(
+                if (complete) "Gamepad siap digunakan. Selamat bermain."
+                else "Kalibrasi sedang berlangsung... Jangan tekan tombol atau gerakkan analog."
+            )
+            .setCategory(Notification.CATEGORY_STATUS)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(complete)
+        if (complete) {
+            builder.setTimeoutAfter(2800)
+        } else {
+            builder.setOngoing(true)
+        }
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, builder.build())
+    }
+
     private fun stopBackend() {
         try { invokeShizukuProcess(arrayOf("sh", "-c", "pkill -x padfix 2>/dev/null || true")) }
         catch (e: Exception) { setStatus("Gagal mengirim perintah Stop: ${e.message}"); return }
+        notificationPollActive = false
+        notifierHandler.removeCallbacksAndMessages(null)
+        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         web.loadUrl("about:blank")
         setStatus("Perintah berhenti dikirim.")
     }
@@ -181,9 +283,15 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        notificationPollActive = false
+        notifierHandler.removeCallbacksAndMessages(null)
         Shizuku.removeRequestPermissionResultListener(permissionListener)
         super.onDestroy()
     }
 
-    companion object { private const val REQUEST_CODE = 2907 }
+    companion object {
+        private const val REQUEST_CODE = 2907
+        private const val NOTIFICATION_CHANNEL = "padfix_gamepad_calibration"
+        private const val NOTIFICATION_ID = 2908
+    }
 }
