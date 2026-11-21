@@ -177,7 +177,7 @@ static int fix(int v, int c, int dz, int lo, int hi, int half, int kp) {
 // ---------------- virtual device persisten + sesi sumber fisik ----------------
 static int have_cal = 0, cen[4], noise[4];
 
-static int create_virtual_device(void) {
+static int create_virtual_device(int source_fd) {
     int u = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
     if (u < 0) { perror("open /dev/uinput"); return -1; }
     if (ioctl(u, UI_SET_EVBIT, EV_KEY) < 0 ||
@@ -185,14 +185,23 @@ static int create_virtual_device(void) {
         ioctl(u, UI_SET_EVBIT, EV_SYN) < 0) {
         perror("uinput event capabilities"); close(u); return -1;
     }
+    unsigned long source_keys[NB(KEY_MAX+1)], source_axes[NB(ABS_MAX+1)];
+    memset(source_keys,0,sizeof source_keys);
+    memset(source_axes,0,sizeof source_axes);
+    ioctl(source_fd,EVIOCGBIT(EV_KEY,sizeof source_keys),source_keys);
+    ioctl(source_fd,EVIOCGBIT(EV_ABS,sizeof source_axes),source_axes);
+    struct input_id source_id;
+    memset(&source_id,0,sizeof source_id);
+    int have_id=ioctl(source_fd,EVIOCGID,&source_id)==0;
+    char source_name[128]={0};
+    ioctl(source_fd,EVIOCGNAME(sizeof source_name),source_name);
+
     memset(virtual_key, 0, sizeof virtual_key);
     memset(virtual_abs, 0, sizeof virtual_abs);
-    /* Sediakan seluruh keycode Linux sebelum controller fisik tersambung.
-       Sebagian controller mengekspos tombol tambahan sebagai KEY_* (< BTN_MISC),
-       jadi jangan membatasi kapabilitas hanya ke BTN_* agar tombol dan kombinasi
-       tidak hilang saat diteruskan ke virtual gamepad. */
+    /* Gabungkan keycode controller dengan seluruh tombol gamepad umum. */
     for (int k = 0; k <= KEY_MAX; k++) {
-        if (ioctl(u, UI_SET_KEYBIT, k) == 0) virtual_key[k] = 1;
+        if ((tbit(k,source_keys) || k >= BTN_MISC) &&
+            ioctl(u, UI_SET_KEYBIT, k) == 0) virtual_key[k] = 1;
     }
     const int keys[] = {BTN_A, BTN_B, BTN_X, BTN_Y, BTN_TL, BTN_TR,
         BTN_TL2, BTN_TR2, BTN_SELECT, BTN_START, BTN_MODE,
@@ -204,11 +213,10 @@ static int create_virtual_device(void) {
 
     struct uinput_user_dev ud;
     memset(&ud, 0, sizeof ud);
-    snprintf(ud.name, UINPUT_MAX_NAME_SIZE, "PadFix Virtual Gamepad");
-    ud.id.bustype = BUS_USB;
-    ud.id.vendor = 0x1209;  /* PID/VID tetap: tidak berubah saat reconnect */
-    ud.id.product = 0x5046;
-    ud.id.version = 1;
+    if(source_name[0]) snprintf(ud.name,UINPUT_MAX_NAME_SIZE,"%.55s (padfix)",source_name);
+    else snprintf(ud.name,UINPUT_MAX_NAME_SIZE,"PadFix Virtual Gamepad");
+    if(have_id) ud.id=source_id;
+    else { ud.id.bustype=BUS_USB; ud.id.vendor=0x1209; ud.id.product=0x5046; ud.id.version=1; }
 
     const int sticks[] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
     for (size_t i=0; i<sizeof sticks/sizeof sticks[0]; i++) {
@@ -220,29 +228,28 @@ static int create_virtual_device(void) {
     const int triggers[] = {ABS_Z, ABS_RZ, ABS_GAS, ABS_BRAKE, ABS_THROTTLE, ABS_RUDDER};
     for (size_t i=0; i<sizeof triggers/sizeof triggers[0]; i++) {
         int a=triggers[i];
-        if (ioctl(u, UI_SET_ABSBIT, a)==0) {
+        if (tbit(a,source_axes) && ioctl(u, UI_SET_ABSBIT, a)==0) {
             virtual_abs[a]=1; ud.absmin[a]=0; ud.absmax[a]=255;
         }
     }
     const int hats[] = {ABS_HAT0X, ABS_HAT0Y, ABS_HAT1X, ABS_HAT1Y};
     for (size_t i=0; i<sizeof hats/sizeof hats[0]; i++) {
         int a=hats[i];
-        if (ioctl(u, UI_SET_ABSBIT, a)==0) {
+        if (tbit(a,source_axes) && ioctl(u, UI_SET_ABSBIT, a)==0) {
             virtual_abs[a]=1; ud.absmin[a]=-1; ud.absmax[a]=1;
         }
     }
     if (write(u, &ud, sizeof ud) != (ssize_t)sizeof ud || ioctl(u, UI_DEV_CREATE) < 0) {
-        perror("uinput create persistent virtual gamepad"); close(u); return -1;
+        perror("uinput create virtual gamepad"); close(u); return -1;
     }
     pthread_mutex_lock(&um);
     ufd=u;
     pthread_mutex_unlock(&um);
     virtual_active=1;
-    printf("[VIRTUAL] VIRTUAL_DEVICE_ACTIVE: PadFix Virtual Gamepad dibuat sekali (VID:PID 1209:5046).\n");
+    printf("[VIRTUAL] VIRTUAL_DEVICE_ACTIVE: %s dibuat dari identitas controller fisik.\n",ud.name);
     fflush(stdout);
     return 0;
 }
-
 static void release_virtual_inputs(void) {
     struct input_event out[KEY_MAX + 8]; size_t n=0;
     for (int k=0;k<=KEY_MAX;k++) if (pressed_key[k]) {
@@ -318,8 +325,16 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     }
     int fd=open(path,O_RDONLY|O_NONBLOCK);
     if(fd<0)return 1;
-#if !PADFIX_PERSISTENT
-    if(create_virtual_device()<0){fprintf(stderr,"[VIRTUAL] gagal membuat gamepad untuk sesi controller.\\n");close(fd);return 1;}
+#if PADFIX_PERSISTENT
+    if(!virtual_active && create_virtual_device(fd)<0){
+        fprintf(stderr,"[VIRTUAL] gagal membuat gamepad persisten dari controller fisik.\\n");
+        close(fd);return 1;
+    }
+#else
+    if(create_virtual_device(fd)<0){
+        fprintf(stderr,"[VIRTUAL] gagal membuat gamepad untuk sesi controller.\\n");
+        close(fd);return 1;
+    }
 #endif
 
     unsigned long keybits[NB(KEY_MAX+1)],absbits[NB(ABS_MAX+1)];
@@ -770,14 +785,8 @@ int main(int argc, char **argv) {
     printf("Dashboard: http://127.0.0.1:%d/?t=%s\n", PORT, token);
     fflush(stdout); // MainActivity reads this line from the startup log to open the tokenized URL.
     if (demo) { while (running) sleep(1); pthread_join(th, NULL); return 0; }
-#if PADFIX_PERSISTENT
-    if (!demo && create_virtual_device() < 0) {
-        fprintf(stderr, "[VIRTUAL] gagal membuat virtual gamepad persisten; backend dihentikan.\n");
-        running=0; pthread_join(th,NULL); return 1;
-    }
-#else
-    /* Mode non-persistent: virtual gamepad dibuat saat controller fisik tersambung. */
-#endif
+    /* Virtual device dibuat saat controller fisik pertama kali ditemukan.
+       Mode persistent mempertahankannya setelah disconnect. */
     live_state=0;
     pthread_t keepalive_thread;
     int keepalive_started=0;
