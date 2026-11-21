@@ -23,11 +23,12 @@
 <div class="stickbox"><div class="sticktitle"><b>Offset kiri</b><span id="ovL" class="s"></span></div><div class="padwrap"><canvas id="offL" class="pad small" width="240" height="240"></canvas><div class="hint">Geser titik untuk mengatur pusat deteksi kiri secara manual.</div></div><div id="offTxtL" class="metrics"></div><p><span class="s">Diterapkan otomatis saat wheel digeser.</span> <button type="button" class="d" onclick="resetStick(0)">Reset kiri</button></p></div>
 <div class="stickbox"><div class="sticktitle"><b>Offset kanan</b><span id="ovR" class="s"></span></div><div class="padwrap"><canvas id="offR" class="pad small" width="240" height="240"></canvas><div class="hint">Geser titik untuk mengatur pusat deteksi kanan secara manual.</div></div><div id="offTxtR" class="metrics"></div><p><span class="s">Diterapkan otomatis saat wheel digeser.</span> <button type="button" class="d" onclick="resetStick(1)">Reset kanan</button></p></div>
 </div>
+<div class="grid" style="margin-top:12px"><div class="stickbox"><b>Power analog kiri</b><div class="row"><input id="powerL" type="range" min="50" max="200" step="1" style="flex:1" oninput="changeStickPower(0,this.value)"><output id="powerValL">100%</output></div><div class="hint">Menguatkan atau melemahkan output semua arah analog kiri. 100% normal.</div></div><div class="stickbox"><b>Power analog kanan</b><div class="row"><input id="powerR" type="range" min="50" max="200" step="1" style="flex:1" oninput="changeStickPower(1,this.value)"><output id="powerValR">100%</output></div><div class="hint">Menguatkan atau melemahkan output semua arah analog kanan. 100% normal.</div></div></div>
 <div class="row"><b>Margin drift</b><input id="margin" type="range" min="0" max="10000" step="50" style="flex:1"><output id="mo"></output></div>
 <div class="row"><b>DZ minimum</b><input id="minz" type="range" min="0" max="12000" step="100" style="flex:1"><output id="zo"></output></div>
 <div class="row"><b>Sisi terpotong</b><input id="kp" type="range" min="0" max="100" style="flex:1"><output id="ko"></output></div>
 <div class="row"><button type="button" onclick="applyGeneral()">Terapkan margin / DZ / sisi terpotong</button><button type="button" class="d" onclick="resetAll()">Reset semua pengaturan</button><span id="msg" class="s"></span></div></section>
-<section class="card"><h3 class="sectiontitle">Pengecekan tombol fisik</h3><p class="s">Daftar tombol yang didukung controller. Tekan tombol fisik untuk melihat kode tombol terakhir di panel Gamepad.</p><div id="buttonCheck" class="grid s">Menunggu data…</div></section><section class="card"><h3>Screenshot Android</h3><p class="s">Tombol Capture fisik: tekan 2 kali cepat untuk screenshot, tahan 2,5 detik untuk mulai/berhenti rekaman layar.</p><button onclick="shot()">Ambil screenshot</button> <span id="sm" class="s"></span><div><img id="im"></div></section>
+<section class="card"><h3 class="sectiontitle">Pengecekan tombol fisik</h3><p class="s">Daftar tombol yang didukung controller. Tekan tombol fisik untuk melihat kode tombol terakhir di panel Gamepad.</p><div id="buttonCheck" class="grid s">Menunggu data…</div></section><section class="card"><h3>Screenshot & rekaman layar</h3><p class="s">Tombol Capture fisik: tekan 2 kali cepat untuk screenshot, tahan 2,5 detik untuk mulai/berhenti rekaman. Rekaman disimpan di Movies/Padfix.</p><button onclick="shot()">Ambil screenshot</button> <button onclick="toggleRecord()">Mulai / hentikan rekaman</button> <span id="sm" class="s"></span><div><img id="im"></div></section>
 </main>
 <div id="calModal" class="modal" role="dialog" aria-modal="true" aria-label="Kalibrasi analog"><div class="modalbox" style="width:min(100%,760px)"><div class="modalhead"><h2 style="margin:0">Kalibrasi Jangkauan 8 Arah</h2><button type="button" onclick="closeCalibration()">Tutup ✕</button></div><p class="s">Pilih analog kiri, kanan, atau keduanya. Geser salah satu dari 8 wheel untuk mengatur respons arah itu. Perubahan langsung tersimpan dan diterapkan.</p><div class="row"><b>Analog</b><select id="calStick" onchange="syncCalInputs()"><option value="0">Kiri</option><option value="1">Kanan</option><option value="2">Keduanya</option></select></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px"><div class="stickbox"><b>Visual jangkauan</b><canvas id="calVisual" class="pad" width="320" height="320" style="width:100%;max-width:290px;margin:8px auto;display:block"></canvas><div id="calVisualInfo" class="hint">Titik menunjukkan jangkauan respons tiap arah.</div><div class="s">Lingkaran luar = batas analog. Titik = jarak respons yang diatur.</div></div><div class="stickbox"><b>Atur 8 arah</b><div id="calWheels" style="display:grid;grid-template-columns:1fr;gap:7px;margin-top:8px"></div></div></div><div class="row"><button type="button" class="d" onclick="resetCalibrationAll()">Reset semua arah</button><span id="calMsg" class="s" aria-live="polite">Perubahan diterapkan otomatis.</span></div></div></div>
 <script>
@@ -65,7 +66,7 @@ document.addEventListener('keydown',e=>{
 // Cegah drag native browser pada seluruh kontrol interaktif.
 document.addEventListener('dragstart',e=>{if(e.target.closest('button,canvas,input,select'))e.preventDefault()},true);
 const N={304:'A/South',305:'B/East',307:'X/North',308:'Y/West',310:'L',311:'R',312:'ZL',313:'ZR',314:'Minus',315:'Plus',316:'Home',317:'L3',318:'R3',544:'Dpad Up',545:'Dpad Down',546:'Dpad Left',547:'Dpad Right',309:'Capture'};const nmf=k=>(N[k]||'')+' ('+k+')';
-let state={sens:[100,100,100,100,100,100,100,100],offset:[0,0,0,0],margin:600,min_dz:1500,kp:0,dirMin:Array(16).fill(100),dirMax:Array(16).fill(100)},sensCursor=[{x:0,y:0},{x:0,y:0}],built=false;
+let state={sens:[100,100,100,100,100,100,100,100],offset:[0,0,0,0],power:[100,100],margin:600,min_dz:1500,kp:0,dirMin:Array(16).fill(100),dirMax:Array(16).fill(100)},sensCursor=[{x:0,y:0},{x:0,y:0}],built=false;
 async function post(p,b){try{let r=await fetch(p,{method:'POST',headers:H,body:JSON.stringify(b)});let j=await r.json().catch(()=>({}));if(!r.ok){$('msg').textContent=j.error||'Gagal';return null}if($('msg'))$('msg').textContent='Perintah berhasil ✓';return j}catch(e){$('msg').textContent='Koneksi gagal';return null}}
 function circle(c,x,y,r,color='#354766'){c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.strokeStyle=color;c.lineWidth=2;c.stroke()}
 function drawPad(id,point,kind){let c=$(id),x=c.getContext('2d'),w=c.width,h=c.height,cx=w/2,cy=h/2,r=w*.39;x.clearRect(0,0,w,h);circle(x,cx,cy,r);circle(x,cx,cy,r*.5,'#263957');x.beginPath();x.moveTo(cx-r,cy);x.lineTo(cx+r,cy);x.moveTo(cx,cy-r);x.lineTo(cx,cy+r);x.strokeStyle='#263957';x.stroke();if(kind==='sens'){x.fillStyle='#69e0a1';x.globalAlpha=.12;x.beginPath();x.arc(cx,cy,r,0,Math.PI*2);x.fill();x.globalAlpha=1}let px=cx+point.x*r,py=cy+point.y*r;x.beginPath();x.moveTo(cx,cy);x.lineTo(px,py);x.strokeStyle=kind==='monitor'?'#69e0a1':kind==='offset'?'#f5b85b':'#69e0a1';x.lineWidth=3;x.stroke();x.beginPath();x.arc(px,py,9,0,Math.PI*2);x.fillStyle=x.strokeStyle;x.fill();x.beginPath();x.arc(cx,cy,3,0,Math.PI*2);x.fillStyle='#fff';x.fill()}
@@ -107,8 +108,9 @@ function bindPad(id,kind,stick){
  c.addEventListener('pointerup',finish);c.addEventListener('pointercancel',finish);c.addEventListener('lostpointercapture',()=>{activePointer=null});
  c.addEventListener('contextmenu',e=>e.preventDefault());
 }
-function drawSettings(){for(let s=0;s<2;s++){drawPad(s?'sensR':'sensL',sensPoint(s),'sens');drawPad(s?'offR':'offL',offPoint(s),'offset');let i=s*4,j=s*2;$('sensTxt'+(s?'R':'L')).textContent=`Kiri ${state.sens[i]}% · Kanan ${state.sens[i+1]}% · Atas ${state.sens[i+2]}% · Bawah ${state.sens[i+3]}% (power: ${Math.round(10000/state.sens[i]) / 100}× / ${Math.round(10000/state.sens[i+1]) / 100}× / ${Math.round(10000/state.sens[i+2]) / 100}× / ${Math.round(10000/state.sens[i+3]) / 100}×)`;$('offTxt'+(s?'R':'L')).textContent=`Offset X: ${state.offset[j]} · Y: ${state.offset[j+1]}`;$('sv'+(s?'R':'L')).textContent='Power 0,5×–2×';$('ov'+(s?'R':'L')).textContent='±4500'}}
-function drawMonitor(id,xv,yv){drawPad(id,{x:Math.max(-1,Math.min(1,xv/32767)),y:Math.max(-1,Math.min(1,yv/32767))},'monitor')}
+function drawSettings(){for(let s=0;s<2;s++){drawPad(s?'sensR':'sensL',sensPoint(s),'sens');drawPad(s?'offR':'offL',offPoint(s),'offset');let i=s*4,j=s*2,k=s?'R':'L';$('sensTxt'+k).textContent=`Kiri ${state.sens[i]}% · Kanan ${state.sens[i+1]}% · Atas ${state.sens[i+2]}% · Bawah ${state.sens[i+3]}%`;$('offTxt'+k).textContent=`Offset X: ${state.offset[j]} · Y: ${state.offset[j+1]}`;$('sv'+k).textContent='Jangkauan per arah';$('ov'+k).textContent='±4500';$('power'+k).value=state.power[s];$('powerVal'+k).textContent=state.power[s]+'%'}}
+function changeStickPower(stick,value){state.power[stick]=Math.max(50,Math.min(200,Math.round(Number(value)||100)));drawSettings();scheduleStickApply(stick,true)}
+function drawMonitor(id,xv,yv){drawPad(id,{x:Math.max(-1,Math.min(1,xv/24000)),y:Math.max(-1,Math.min(1,yv/24000))},'monitor')}
 let refreshing=false,monitorTarget=[0,0,0,0],monitorCurrent=[0,0,0,0];
 function animateMonitor(){
  let moving=false;
@@ -121,11 +123,11 @@ function animateMonitor(){
  drawMonitor('monR',monitorCurrent[2],monitorCurrent[3]);
  requestAnimationFrame(animateMonitor);
 }
-async function refresh(){if(refreshing)return;refreshing=true;try{let r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){$('st').textContent='TOKEN?';return}let d=await r.json();updatePhysicalNotice(d);$('st').textContent=d.connected?'TERSAMBUNG':(d.virtualActive?'VIRTUAL AKTIF · MENUNGGU CONTROLLER':'TERLEPAS');$('nm').textContent=d.name+(d.connected&&!d.grabbed?' · PERINGATAN: input belum berhasil dikunci dari browser':'')+(d.virtualActive?' · Virtual gamepad tetap aktif':'');$('cal').textContent=d.calibrationStatus==='CALIBRATION_IN_PROGRESS'?'SEDANG BERLANGSUNG':(d.calibrationStatus==='CALIBRATION_COMPLETE'?'SELESAI':'MENUNGGU CONTROLLER');$('lk').textContent=d.last_key||'—';monitorTarget=d.fixed.slice();$('lv').textContent=d.fixed[0]+' , '+d.fixed[1];$('rv').textContent=d.fixed[2]+' , '+d.fixed[3];$('lm').textContent=`Raw X/Y: ${d.raw[0]} / ${d.raw[1]} · Pusat: ${d.center[0]} / ${d.center[1]} · DZ: ${d.deadzone[0]} / ${d.deadzone[1]}`;$('rm').textContent=`Raw X/Y: ${d.raw[2]} / ${d.raw[3]} · Pusat: ${d.center[2]} / ${d.center[3]} · DZ: ${d.deadzone[2]} / ${d.deadzone[3]}`;$('ax').textContent='Offset aktif: '+d.offset.join(' / ');renderButtonCheck(d);$('sm').textContent=d.recording?'● MEREKAM LAYAR · '+d.recordingFile:'Capture: 2× screenshot · tahan 2,5 dtk rekam';if(!built){built=true;let saved=readAutoConfig();state.sens=saved?saved.sens:d.sens;state.offset=saved?saved.offset:(d.offset||[0,0,0,0]);state.margin=saved?saved.margin:d.margin;state.min_dz=saved?saved.min_dz:d.min_dz;state.kp=saved?saved.kp:d.kp;$('margin').value=d.margin;$('minz').value=d.min_dz;$('kp').value=d.kp;[['margin','mo'],['minz','zo'],['kp','ko']].forEach(([a,b])=>{$(b).textContent=$(a).value;$(a).oninput=()=>$(b).textContent=$(a).value});drawSettings();if(saved){state.dirMin=(saved.dirMin||Array(16).fill(100)).slice();state.dirMax=(saved.dirMax||Array(16).fill(100)).slice();await applyAutoConfig(saved)}}}catch(e){$('st').textContent='OFFLINE'}finally{refreshing=false}}
+async function refresh(){if(refreshing)return;refreshing=true;try{let r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){$('st').textContent='TOKEN?';return}let d=await r.json();updatePhysicalNotice(d);$('st').textContent=d.connected?'TERSAMBUNG':(d.virtualActive?'VIRTUAL AKTIF · MENUNGGU CONTROLLER':'TERLEPAS');$('nm').textContent=d.name+(d.connected&&!d.grabbed?' · PERINGATAN: input belum berhasil dikunci dari browser':'')+(d.virtualActive?' · Virtual gamepad tetap aktif':'');$('cal').textContent=d.calibrationStatus==='CALIBRATION_IN_PROGRESS'?'SEDANG BERLANGSUNG':(d.calibrationStatus==='CALIBRATION_COMPLETE'?'SELESAI':'MENUNGGU CONTROLLER');$('lk').textContent=d.last_key||'—';monitorTarget=d.fixed.slice();$('lv').textContent=d.fixed[0]+' , '+d.fixed[1];$('rv').textContent=d.fixed[2]+' , '+d.fixed[3];$('lm').textContent=`Raw X/Y: ${d.raw[0]} / ${d.raw[1]} · Pusat: ${d.center[0]} / ${d.center[1]} · DZ: ${d.deadzone[0]} / ${d.deadzone[1]}`;$('rm').textContent=`Raw X/Y: ${d.raw[2]} / ${d.raw[3]} · Pusat: ${d.center[2]} / ${d.center[3]} · DZ: ${d.deadzone[2]} / ${d.deadzone[3]}`;$('ax').textContent='Offset aktif: '+d.offset.join(' / ');renderButtonCheck(d);$('sm').textContent=d.recording?'● MEREKAM LAYAR · '+d.recordingFile:(d.captureMessage||'Capture: 2× screenshot · tahan 2,5 dtk rekam');if(!built){built=true;let saved=readAutoConfig();state.sens=saved?saved.sens:d.sens;state.offset=saved?saved.offset:(d.offset||[0,0,0,0]);state.power=saved?(saved.power||[100,100]):(d.power||[100,100]);state.margin=saved?saved.margin:d.margin;state.min_dz=saved?saved.min_dz:d.min_dz;state.kp=saved?saved.kp:d.kp;$('margin').value=d.margin;$('minz').value=d.min_dz;$('kp').value=d.kp;[['margin','mo'],['minz','zo'],['kp','ko']].forEach(([a,b])=>{$(b).textContent=$(a).value;$(a).oninput=()=>$(b).textContent=$(a).value});drawSettings();if(saved){state.dirMin=(saved.dirMin||Array(16).fill(100)).slice();state.dirMax=(saved.dirMax||Array(16).fill(100)).slice();await applyAutoConfig(saved)}}}catch(e){$('st').textContent='OFFLINE'}finally{refreshing=false}}
 let liveApplyTimers=[null,null],liveApplyQueues=[Promise.resolve(),Promise.resolve()];
 function enqueueStickConfig(stick,extra={}){
  const key=stick===0?'L':'R',base=stick*4,off=stick*2;
- const body={['sens'+key]:state.sens.slice(base,base+4),['offset'+key]:state.offset.slice(off,off+2),...extra};
+ const body={['sens'+key]:state.sens.slice(base,base+4),['offset'+key]:state.offset.slice(off,off+2),['power'+key]:state.power[stick],...extra};
  const job=liveApplyQueues[stick].catch(()=>null).then(()=>post('/api/config',body));
  liveApplyQueues[stick]=job;
  return job;
@@ -144,7 +146,7 @@ async function resetAll(){
  if(!confirm('Reset semua pengaturan analog Padfix ke nilai awal?'))return;
  const ok=await post('/api/reset',{});
  if(!ok)return;
- state={sens:[100,100,100,100,100,100,100,100],offset:[0,0,0,0],margin:600,min_dz:1500,kp:0,dirMin:Array(16).fill(100),dirMax:Array(16).fill(100)};
+ state={sens:[100,100,100,100,100,100,100,100],offset:[0,0,0,0],power:[100,100],margin:600,min_dz:1500,kp:0,dirMin:Array(16).fill(100),dirMax:Array(16).fill(100)};
  sensCursor=[{x:0,y:0},{x:0,y:0}];
  $('margin').value=600;$('minz').value=1500;$('kp').value=0;
  $('mo').textContent='600';$('zo').textContent='1500';$('ko').textContent='0';
@@ -153,7 +155,7 @@ async function resetAll(){
 const AUTO_KEY='padfix.autosave.v1';
 function readAutoConfig(){try{const p=JSON.parse(localStorage.getItem(AUTO_KEY)||'null');return validPreset(p)?p:null}catch(e){return null}}
 function saveAutoConfig(){try{localStorage.setItem(AUTO_KEY,JSON.stringify(currentPreset()))}catch(e){}}
-async function applyAutoConfig(p){const body={sensL:p.sens.slice(0,4),sensR:p.sens.slice(4,8),offsetL:p.offset.slice(0,2),offsetR:p.offset.slice(2,4),margin:+p.margin,min_dz:+p.min_dz,kp:+p.kp,dirMin:p.dirMin||Array(16).fill(100),dirMax:p.dirMax||Array(16).fill(100)};await post('/api/config',body)}
+async function applyAutoConfig(p){const power=p.power||[100,100];const body={sensL:p.sens.slice(0,4),sensR:p.sens.slice(4,8),offsetL:p.offset.slice(0,2),offsetR:p.offset.slice(2,4),powerL:power[0],powerR:power[1],margin:+p.margin,min_dz:+p.min_dz,kp:+p.kp,dirMin:p.dirMin||Array(16).fill(100),dirMax:p.dirMax||Array(16).fill(100)};await post('/api/config',body)}
 
 const CAL_DIRS=['Atas','Atas kanan','Kanan','Bawah kanan','Bawah','Bawah kiri','Kiri','Atas kiri'];
 // Urutan tampilan searah jarum jam dipetakan ke indeks native yang sudah ada.
@@ -209,7 +211,7 @@ function renderButtonCheck(d){
 async function resetStick(stick){
  const label=stick===0?'kiri':'kanan',base=stick*4,off=stick*2;
  if(!confirm('Reset jangkauan dan offset analog '+label+'?'))return;
- state.sens.splice(base,4,100,100,100,100);state.offset.splice(off,2,0,0);
+ state.sens.splice(base,4,100,100,100,100);state.offset.splice(off,2,0,0);state.power[stick]=100;
  for(let d=stick*8;d<stick*8+8;d++){state.dirMin[d]=100;state.dirMax[d]=100}
  if(liveApplyTimers[stick]!==null){clearTimeout(liveApplyTimers[stick]);liveApplyTimers[stick]=null;}
  const body={dirMin:state.dirMin.slice(),dirMax:state.dirMax.slice()};
@@ -225,7 +227,7 @@ function refreshPresetList(selected=''){
  if(selected&&presets[selected])list.value=selected;
 }
 function currentPreset(){
- return {sens:state.sens.slice(),offset:state.offset.slice(),margin:+$('margin').value,
+ return {sens:state.sens.slice(),offset:state.offset.slice(),power:state.power.slice(),margin:+$('margin').value,
   min_dz:+$('minz').value,kp:+$('kp').value,dirMin:state.dirMin.slice(),dirMax:state.dirMax.slice()};
 }
 function validPreset(p){
@@ -233,15 +235,16 @@ function validPreset(p){
   p.sens.every(Number.isFinite)&&p.offset.every(Number.isFinite)&&
   Number.isFinite(+p.margin)&&Number.isFinite(+p.min_dz)&&Number.isFinite(+p.kp)&&
   (!p.dirMin||(Array.isArray(p.dirMin)&&p.dirMin.length===16&&p.dirMin.every(v=>Number.isFinite(v)&&v>=50&&v<=200)))&&
-  (!p.dirMax||(Array.isArray(p.dirMax)&&p.dirMax.length===16&&p.dirMax.every(v=>Number.isFinite(v)&&v>=50&&v<=200)));
+  (!p.dirMax||(Array.isArray(p.dirMax)&&p.dirMax.length===16&&p.dirMax.every(v=>Number.isFinite(v)&&v>=50&&v<=200)))&&(!p.power||(Array.isArray(p.power)&&p.power.length===2&&p.power.every(v=>Number.isFinite(v)&&v>=50&&v<=200)));
 }
 async function applyPresetData(p){
  if(!validPreset(p)){$('presetMsg').textContent='Preset rusak atau format tidak cocok.';return}
+ const power=p.power||[100,100];
  const body={sensL:p.sens.slice(0,4),sensR:p.sens.slice(4,8),
-  offsetL:p.offset.slice(0,2),offsetR:p.offset.slice(2,4),
+  offsetL:p.offset.slice(0,2),offsetR:p.offset.slice(2,4),powerL:power[0],powerR:power[1],
   margin:+p.margin,min_dz:+p.min_dz,kp:+p.kp,dirMin:p.dirMin||Array(16).fill(100),dirMax:p.dirMax||Array(16).fill(100)};
  const ok=await post('/api/config',body);if(!ok)return;
- state.sens=p.sens.slice();state.offset=p.offset.slice();state.dirMin=(p.dirMin||Array(16).fill(100)).slice();state.dirMax=(p.dirMax||Array(16).fill(100)).slice();
+ state.sens=p.sens.slice();state.offset=p.offset.slice();state.power=(p.power||[100,100]).slice();state.dirMin=(p.dirMin||Array(16).fill(100)).slice();state.dirMax=(p.dirMax||Array(16).fill(100)).slice();
  state.margin=+p.margin;state.min_dz=+p.min_dz;state.kp=+p.kp;
  $('margin').value=state.margin;$('minz').value=state.min_dz;$('kp').value=state.kp;
  $('mo').textContent=state.margin;$('zo').textContent=state.min_dz;$('ko').textContent=state.kp;
@@ -264,6 +267,7 @@ function deletePreset(){
  const presets=readPresets();delete presets[name];localStorage.setItem(PRESET_KEY,JSON.stringify(presets));
  refreshPresetList();$('presetMsg').textContent='Preset dihapus.';
 }
-async function shot(){$('sm').textContent='Mengambil…';let ok=await post('/api/screenshot',{});if(!ok){$('sm').textContent='Gagal';return}let r=await fetch('/api/shot.png',{headers:H});$('im').src=URL.createObjectURL(await r.blob());$('sm').textContent='OK'}
+async function shot(){$('sm').textContent='Mengambil screenshot…';let ok=await post('/api/screenshot',{});if(!ok){$('sm').textContent='Screenshot gagal';return}let r=await fetch('/api/shot.png',{headers:H});if(!r.ok){$('sm').textContent='Screenshot tersimpan, preview tidak tersedia';return}$('im').src=URL.createObjectURL(await r.blob());$('sm').textContent='Screenshot tersimpan di Pictures/Padfix'}
+async function toggleRecord(){const ok=await post('/api/record',{});if(ok)$('sm').textContent='Perintah rekaman dikirim…'}
 ['sensL','sensR'].forEach((id,i)=>bindPad(id,'sens',i));['offL','offR'].forEach((id,i)=>bindPad(id,'offset',i));animateMonitor();refresh();refreshPresetList();setInterval(refresh,1000/60);
 </script></body></html>
