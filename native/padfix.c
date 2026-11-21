@@ -451,8 +451,18 @@ static int session(const char *fixed, int cal_ms, int *announced) {
             }else if(e.type==EV_KEY){
                 if(calibrating)continue;
                 last_key=e.code;
-                /* BTN_Z (309) is the Capture key on this controller. */
-                if(e.code==BTN_Z||e.code==KEY_RECORD||e.code==KEY_SYSRQ||e.code==KEY_CAMERA||e.code==BTN_TRIGGER_HAPPY1||e.code==BTN_TRIGGER_HAPPY2){capture_button_event(e.value);continue;}
+                /* BTN_Z (Linux keycode 309 / 0x135) is Capture on this controller.
+                   Keep the screenshot/record gestures, but also forward BTN_Z so
+                   Android games can read it as a physical gamepad button (Gamepad API b16). */
+                if(e.code==BTN_Z){
+                    capture_button_event(e.value);
+                    if(e.code<=KEY_MAX&&virtual_key[e.code]){
+                        pressed_key[e.code]=(e.value!=0);
+                        if(out_count<128)out_ev[out_count++]=e;
+                    }
+                    continue;
+                }
+                if(e.code==KEY_RECORD||e.code==KEY_SYSRQ||e.code==KEY_CAMERA||e.code==BTN_TRIGGER_HAPPY1||e.code==BTN_TRIGGER_HAPPY2){capture_button_event(e.value);continue;}
                 if(e.code<=KEY_MAX&&virtual_key[e.code]){
                     int out_code=e.code;
                     /* Compensate Android's standard mapping for Nintendo X/Y layout. */
