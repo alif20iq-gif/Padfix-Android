@@ -248,7 +248,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
             perror("uinput create"); close(u); close(fd); return -1;
         }
         pthread_mutex_lock(&um); ufd = u; pthread_mutex_unlock(&um);
-        printf("Virtual gamepad dibuat dan akan tetap aktif sampai Padfix dihentikan.\\n");
+        printf("Virtual gamepad dibuat dan akan tetap aktif sampai Padfix dihentikan.\n");
     }
     live_grab = (ioctl(fd, EVIOCGRAB, 1) == 0);
     if (!live_grab) perror("EVIOCGRAB (input fisik mungkin masih masuk ke browser)");
@@ -650,7 +650,7 @@ int main(int argc, char **argv) {
     if (final_u >= 0) {
         ioctl(final_u, UI_DEV_DESTROY);
         close(final_u);
-        printf("Virtual gamepad dihentikan.\\n");
+        printf("Virtual gamepad dihentikan.\n");
     }
     printf("Berhenti.\n");
     return 0;
