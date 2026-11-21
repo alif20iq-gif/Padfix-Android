@@ -208,7 +208,7 @@ static int create_virtual_device(void) {
     for (size_t i=0; i<sizeof sticks/sizeof sticks[0]; i++) {
         int a=sticks[i];
         if (ioctl(u, UI_SET_ABSBIT, a) < 0) { perror("uinput stick axis"); close(u); return -1; }
-        virtual_abs[a]=1; ud.absmin[a]=-24000; ud.absmax[a]=24000;
+        virtual_abs[a]=1; ud.absmin[a]=-32768; ud.absmax[a]=32767;
         ud.absfuzz[a]=0; ud.absflat[a]=0;
     }
     const int triggers[] = {ABS_Z, ABS_RZ, ABS_GAS, ABS_BRAKE, ABS_THROTTLE, ABS_RUDDER};
@@ -352,7 +352,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     int mn[4],mx[4],last[4];
     for(int i=0;i<4;i++){
         struct input_absinfo ai;
-        if(ioctl(fd,EVIOCGABS(AX[i]),&ai)==0)mn[i]=mx[i]=ai.value;
+        if(ioctl(fd,EVIOCGABS(SRC_AX[i]),&ai)==0)mn[i]=mx[i]=ai.value;
         else mn[i]=mx[i]=oc[i];
         last[i]=0;
     }
@@ -429,7 +429,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                     so=so*power/100;if(so>half[i])so=half[i];if(so< -half[i])so= -half[i];
                     int fixed_value=oc[i]+(int)so;
                     stick_offset[i]=(int)so;live_dz[i]=dz;
-                    int vout=scale_to_virtual(fixed_value,lo[i],hi[i],-24000,24000);
+                    int vout=scale_to_virtual(fixed_value,lo[i],hi[i],-32768,32767);
                     vout=(int)((long)vout*stick_power[i/2]/100);
                     if(vout>24000)vout=24000;if(vout< -24000)vout=-24000;
                     live_fixed[i]=vout;
