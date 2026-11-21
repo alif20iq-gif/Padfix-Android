@@ -591,8 +591,8 @@ static const char *calibration_label(void) {
 static void send_status(int c) {
     static char b[6144]; int o = 0;
     #define A(...) o += snprintf(b + o, sizeof b - (size_t)o, __VA_ARGS__)
-    A("{\"running\":%s,\"connected\":%s,\"grabbed\":%s,\"calibrated\":%s,\"virtualActive\":%s,\"state\":\"%s\",\"virtualStatus\":\"%s\",\"physicalStatus\":\"%s\",\"calibrationStatus\":\"%s\",\"name\":\"%s\",\"margin\":%d,\"min_dz\":%d,\"kp\":%d,\"last_key\":%d,\"sens\":[",
-      running ? "true" : "false", live_conn ? "true" : "false", live_grab ? "true" : "false", live_cal ? "true" : "false", virtual_active ? "true" : "false", state_label(), virtual_active ? "VIRTUAL_DEVICE_ACTIVE" : "INACTIVE", physical_label(), calibration_label(), dev_name, cfg_margin, cfg_min_dz, cfg_kp, last_key);
+    A("{\"running\":%s,\"connected\":%s,\"grabbed\":%s,\"calibrated\":%s,\"virtualActive\":%s,\"recording\":%s,\"recordingFile\":\"%s\",\"state\":\"%s\",\"virtualStatus\":\"%s\",\"physicalStatus\":\"%s\",\"calibrationStatus\":\"%s\",\"name\":\"%s\",\"margin\":%d,\"min_dz\":%d,\"kp\":%d,\"last_key\":%d,\"sens\":[",
+      running ? "true" : "false", live_conn ? "true" : "false", live_grab ? "true" : "false", live_cal ? "true" : "false", virtual_active ? "true" : "false", recording ? "true" : "false", recording_path, state_label(), virtual_active ? "VIRTUAL_DEVICE_ACTIVE" : "INACTIVE", physical_label(), calibration_label(), dev_name, cfg_margin, cfg_min_dz, cfg_kp, last_key);
     for (int i = 0; i < 8; i++) A("%s%d", i ? "," : "", sens[i]);
     A("],\"offset\":[%d,%d,%d,%d],\"raw\":[%d,%d,%d,%d],\"fixed\":[%d,%d,%d,%d],\"center\":[%d,%d,%d,%d],\"deadzone\":[%d,%d,%d,%d],\"buttons\":[",
       cfg_offset[0], cfg_offset[1], cfg_offset[2], cfg_offset[3], live_raw[0], live_raw[1], live_raw[2], live_raw[3], live_fixed[0], live_fixed[1], live_fixed[2], live_fixed[3],
