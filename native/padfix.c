@@ -452,7 +452,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                 if(calibrating)continue;
                 last_key=e.code;
                 /* BTN_Z (309) is the Capture key on this controller. */
-                if(e.code==BTN_Z||e.code==KEY_SYSRQ||e.code==KEY_CAMERA||e.code==BTN_TRIGGER_HAPPY1||e.code==BTN_TRIGGER_HAPPY2){capture_button_event(e.value);continue;}
+                if(e.code==BTN_Z||e.code==KEY_RECORD||e.code==KEY_SYSRQ||e.code==KEY_CAMERA||e.code==BTN_TRIGGER_HAPPY1||e.code==BTN_TRIGGER_HAPPY2){capture_button_event(e.value);continue;}
                 if(e.code<=KEY_MAX&&virtual_key[e.code]){
                     int out_code=e.code;
                     /* Compensate Android's standard mapping for Nintendo X/Y layout. */
