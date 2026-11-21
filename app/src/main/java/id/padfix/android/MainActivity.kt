@@ -32,6 +32,7 @@ class MainActivity : Activity() {
     @Volatile private var dashboardLoaded = false
     @Volatile private var notificationPollActive = false
     @Volatile private var lastCalibrationStatus = ""
+    @Volatile private var notificationGeneration = 0
     private val notifierHandler = Handler(Looper.getMainLooper())
 
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
@@ -160,13 +161,16 @@ class MainActivity : Activity() {
 
     private fun startBackendStateNotifications(dashboardUrl: String) {
         val token = android.net.Uri.parse(dashboardUrl).getQueryParameter("t") ?: return
+        notificationPollActive = false
+        notificationGeneration++
+        notifierHandler.removeCallbacksAndMessages(null)
         notificationPollActive = true
         lastCalibrationStatus = ""
-        pollBackendState(token)
+        pollBackendState(token, notificationGeneration)
     }
 
-    private fun pollBackendState(token: String) {
-        if (!notificationPollActive) return
+    private fun pollBackendState(token: String, generation: Int) {
+        if (!notificationPollActive || generation != notificationGeneration) return
         thread(name = "Padfix-state-notifier") {
             var calibration = ""
             var physical = ""
@@ -189,7 +193,7 @@ class MainActivity : Activity() {
                 // Backend mungkin sedang restart atau sedang dihentikan.
             }
             runOnUiThread {
-                if (!notificationPollActive) return@runOnUiThread
+                if (!notificationPollActive || generation != notificationGeneration) return@runOnUiThread
                 when (calibration) {
                     "CALIBRATION_IN_PROGRESS" -> {
                         if (lastCalibrationStatus != calibration) showCalibrationNotification(false)
@@ -206,7 +210,7 @@ class MainActivity : Activity() {
                         lastCalibrationStatus = calibration
                     }
                 }
-                notifierHandler.postDelayed({ pollBackendState(token) }, 850)
+                notifierHandler.postDelayed({ pollBackendState(token, generation) }, 850)
             }
         }
     }
@@ -236,6 +240,7 @@ class MainActivity : Activity() {
         try { invokeShizukuProcess(arrayOf("sh", "-c", "pkill -x padfix 2>/dev/null || true")) }
         catch (e: Exception) { setStatus("Gagal mengirim perintah Stop: ${e.message}"); return }
         notificationPollActive = false
+        notificationGeneration++
         notifierHandler.removeCallbacksAndMessages(null)
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         web.loadUrl("about:blank")
@@ -286,6 +291,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         notificationPollActive = false
+        notificationGeneration++
         notifierHandler.removeCallbacksAndMessages(null)
         Shizuku.removeRequestPermissionResultListener(permissionListener)
         super.onDestroy()
