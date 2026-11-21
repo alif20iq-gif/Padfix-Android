@@ -245,6 +245,44 @@ static int scale_to_virtual(int value, int lo, int hi, int vmin, int vmax) {
 }
 
 /* Satu sesi hanya membuka/membaca sumber fisik. Virtual uinput tidak disentuh. */
+static void *r3_keepalive_main(void *unused) {
+    (void)unused;
+    int64_t next_pulse=now_ms()+10000;
+    while(running){
+        if(live_conn || !virtual_active){
+            next_pulse=now_ms()+10000;
+            struct timespec pause={0,200000000};
+            nanosleep(&pause,NULL);
+            continue;
+        }
+        int64_t now=now_ms();
+        if(now<next_pulse){
+            int wait=(int)(next_pulse-now);
+            if(wait>200)wait=200;
+            struct timespec pause={wait/1000,(wait%1000)*1000000L};
+            nanosleep(&pause,NULL);
+            continue;
+        }
+        if(!live_conn && virtual_active && running){
+            struct input_event pulse[2];
+            memset(pulse,0,sizeof pulse);
+            pulse[0].type=EV_KEY;pulse[0].code=BTN_THUMBR;pulse[0].value=1;
+            pulse[1].type=EV_SYN;pulse[1].code=SYN_REPORT;
+            emit_batch(pulse,2);
+            printf("[VIRTUAL] R3 keep-alive press (controller fisik belum terhubung).\\n");
+            struct timespec hold={0,100000000L};
+            nanosleep(&hold,NULL);
+            memset(pulse,0,sizeof pulse);
+            pulse[0].type=EV_KEY;pulse[0].code=BTN_THUMBR;pulse[0].value=0;
+            pulse[1].type=EV_SYN;pulse[1].code=SYN_REPORT;
+            emit_batch(pulse,2);
+            printf("[VIRTUAL] R3 keep-alive release.\\n");
+        }
+        next_pulse=now_ms()+10000;
+    }
+    return NULL;
+}
+
 static int session(const char *fixed, int cal_ms, int *announced) {
     char path[64]={0};
     if(fixed[0]) snprintf(path,sizeof path,"%s",fixed);
@@ -622,12 +660,16 @@ int main(int argc, char **argv) {
         running=0; pthread_join(th,NULL); return 1;
     }
     live_state=0;
+    pthread_t keepalive_thread;
+    int keepalive_started=pthread_create(&keepalive_thread,NULL,r3_keepalive_main,NULL)==0;
+    if(!keepalive_started)fprintf(stderr,"[VIRTUAL] gagal menjalankan thread R3 keep-alive.\\n");
     int announced = 0;
     while (running) {
         int r = session(fixed, cal_ms, &announced);
         if (r < 0) { running = 0; break; }
         if (r == 1 && running) sleep(1);
     }
+    if(keepalive_started)pthread_join(keepalive_thread,NULL);
     if (virtual_active) {
         release_virtual_inputs();
         pthread_mutex_lock(&um);
