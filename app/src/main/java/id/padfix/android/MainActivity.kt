@@ -172,7 +172,7 @@ class MainActivity : Activity() {
         notificationPollActive = true
         lastCalibrationStatus = ""
         lastNotificationKey = ""
-        showPersistentGamepadNotification("VIRTUAL GAMEPAD AKTIF", "Menunggu controller fisik • R3 keep-alive setiap 10 detik.")
+        showPersistentGamepadNotification("MENUNGGU CONTROLLER FISIK", "Virtual gamepad dibuat saat controller pertama kali tersambung.")
         pollBackendState(token, notificationGeneration)
     }
 
@@ -211,8 +211,9 @@ class MainActivity : Activity() {
                     physical == "PHYSICAL_GAMEPAD_CONNECTED" ->
                         showPersistentGamepadNotification("GAMEPAD FISIK TERHUBUNG", "Virtual gamepad aktif • Memantau controller fisik.")
                     virtualActive ->
-                        showPersistentGamepadNotification("VIRTUAL GAMEPAD AKTIF", "Menunggu controller fisik • R3 keep-alive setiap 10 detik.")
-                    else -> Unit
+                        showPersistentGamepadNotification("VIRTUAL GAMEPAD AKTIF", "Controller fisik terputus • Virtual gamepad tetap terdaftar.")
+                    else ->
+                        showPersistentGamepadNotification("MENUNGGU CONTROLLER FISIK", "Virtual gamepad akan dibuat saat controller pertama kali tersambung.")
                 }
                 lastCalibrationStatus = calibration
                 notifierHandler.postDelayed({ pollBackendState(token, generation) }, 850)
