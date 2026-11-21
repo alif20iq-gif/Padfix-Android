@@ -47,8 +47,7 @@ static pthread_mutex_t um = PTHREAD_MUTEX_INITIALIZER;
 static char token[17];
 static const char *www = "/data/local/tmp/padfix_index.html";
 static const char *match = "Pro Controller";
-static const int AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY}; // sumbu virtual standar Android
-static int SRC_AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY}; // sumbu fisik hasil deteksi
+static const int AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
 static unsigned char pressed_key[KEY_MAX + 1];
 static int capture_clicks = 0;
 static int64_t capture_last_click_ms = 0;
@@ -87,14 +86,7 @@ static void load_config(void) {
 
 
 static void on_sig(int s) { (void)s; running = 0; }
-static int idx_of(int code) { for (int i = 0; i < 4; i++) if (SRC_AX[i] == code) return i; return -1; }
-static int scale_axis(int value, int lo, int hi) {
-    if (hi <= lo) return 0;
-    long v = ((long)(value - lo) * 65535L) / (hi - lo) - 32768L;
-    if (v < -32768) v = -32768;
-    if (v > 32767) v = 32767;
-    return (int)v;
-}
+static int idx_of(int code) { for (int i = 0; i < 4; i++) if (AX[i] == code) return i; return -1; }
 static int tbit(int b, const unsigned long *a) { return (a[b / BPL] >> (b % BPL)) & 1; }
 static int64_t now_ms(void) {
     struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
@@ -193,15 +185,6 @@ static int session(const char *fixed, int cal_ms, int *announced) {
         have_key[dpad_keys[q]] = 1;
     }
 
-    // Switch Pro dan beberapa driver Android dapat mengekspos stik kanan sebagai
-    // ABS_Z/ABS_RZ. Deteksi sumber fisik, tetapi selalu sajikan empat sumbu standar
-    // ABS_X/Y/RX/RY kepada Android agar navigasi/kursor game dikenali konsisten.
-    SRC_AX[0] = ABS_X; SRC_AX[1] = ABS_Y;
-    SRC_AX[2] = ABS_RX; SRC_AX[3] = ABS_RY;
-    if (!(tbit(ABS_RX, absbits) && tbit(ABS_RY, absbits)) &&
-        tbit(ABS_Z, absbits) && tbit(ABS_RZ, absbits)) {
-        SRC_AX[2] = ABS_Z; SRC_AX[3] = ABS_RZ;
-    }
     struct uinput_user_dev ud; memset(&ud, 0, sizeof ud);
     snprintf(ud.name, UINPUT_MAX_NAME_SIZE, "%.60s (padfix)", rname);
     ud.id = id;
@@ -210,24 +193,11 @@ static int session(const char *fixed, int cal_ms, int *announced) {
         if (!tbit(a, absbits)) continue;
         struct input_absinfo ai;
         if (ioctl(fd, EVIOCGABS(a), &ai) < 0) continue;
-        int i = idx_of(a);
-        if (i >= 0) {
-            lo[i] = ai.minimum; hi[i] = ai.maximum;
-            if (hi[i] <= lo[i]) { lo[i] = -32768; hi[i] = 32767; }
-            half[i] = (hi[i] - lo[i]) / 2; oc[i] = (hi[i] + lo[i]) / 2;
-            continue; // source axis dipetakan ke ABS_X/Y/RX/RY standar di bawah
-        }
-        // Hindari mengekspos ABS_Z/RZ mentah jika keduanya sedang dipakai
-        // sebagai sumber stik kanan pengganti ABS_RX/ABS_RY.
-        if ((a == ABS_Z && SRC_AX[2] == ABS_Z) || (a == ABS_RZ && SRC_AX[3] == ABS_RZ)) continue;
         ioctl(u, UI_SET_ABSBIT, a);
         ud.absmin[a] = ai.minimum; ud.absmax[a] = ai.maximum;
-        ud.absfuzz[a] = ai.fuzz; ud.absflat[a] = ai.flat;
-    }
-    for (int i = 0; i < 4; i++) {
-        ioctl(u, UI_SET_ABSBIT, AX[i]);
-        ud.absmin[AX[i]] = -32768; ud.absmax[AX[i]] = 32767;
-        ud.absfuzz[AX[i]] = 0; ud.absflat[AX[i]] = 0;
+        int i = idx_of(a);
+        if (i >= 0) { lo[i] = ai.minimum; hi[i] = ai.maximum; half[i] = (hi[i] - lo[i]) / 2; oc[i] = (hi[i] + lo[i]) / 2; }
+        else { ud.absfuzz[a] = ai.fuzz; ud.absflat[a] = ai.flat; }
     }
     if (write(u, &ud, sizeof ud) != (ssize_t)sizeof ud || ioctl(u, UI_DEV_CREATE) < 0) {
         perror("uinput create"); close(u); close(fd); return -1;
@@ -244,10 +214,10 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     int64_t cal_end = 0;
     if (calibrating) {
         want_recal = 0; live_cal = 0; cal_end = now_ms() + cal_ms;
-        for (int i = 0; i < 4; i++) { struct input_absinfo ai; ioctl(fd, EVIOCGABS(SRC_AX[i]), &ai); mn[i] = mx[i] = ai.value; }
+        for (int i = 0; i < 4; i++) { struct input_absinfo ai; ioctl(fd, EVIOCGABS(AX[i]), &ai); mn[i] = mx[i] = ai.value; }
         printf("Kalibrasi %d ms: LEPAS kedua stik...\n", cal_ms); fflush(stdout);
     } else live_cal = 1;
-    for (int i = 0; i < 4; i++) last[i] = 0;
+    for (int i = 0; i < 4; i++) last[i] = oc[i];
 
     int ret = 1;
     while (running) {
@@ -301,7 +271,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                     if (calibrating) {
                         if (e.value < mn[i]) mn[i] = e.value;
                         if (e.value > mx[i]) mx[i] = e.value;
-                        out = scale_axis(oc[i], lo[i], hi[i]);
+                        out = oc[i];
                     } else {
                         int dz = noise[i] + cfg_margin; if (dz < cfg_min_dz) dz = cfg_min_dz;
                         int center = cen[i] + cfg_offset[i];
@@ -323,11 +293,10 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                         int power=dir_min[di]+(int)((long)(dir_max[di]-dir_min[di])*radius/(half[i]>0?half[i]:1));
                         so=so*power/100; if(so>half[i])so=half[i]; if(so< -half[i])so= -half[i];
                         live_fixed[i] = (int)so;
-                        out = scale_axis(oc[i] + (int)so, lo[i], hi[i]);
+                        out = oc[i] + (int)so;
                         live_dz[i] = dz;
                     }
                     if (calibrating) live_fixed[i] = 0;
-                    e.code = AX[i];
                     if (out == last[i]) continue;
                     last[i] = out; e.value = out;
                 }
