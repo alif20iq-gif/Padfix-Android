@@ -29,13 +29,14 @@
 #define BPL (sizeof(unsigned long) * 8)
 #define NB(x) ((((x) - 1) / BPL) + 1)
 #define PORT 8765
-#define SHOT "/data/local/tmp/padfix_shot.png"
+#define SHOT "/sdcard/Pictures/Padfix/Padfix-latest.png"
 #define RECORD_DIR "/sdcard/Movies/Padfix"
 
 static volatile sig_atomic_t running = 1;
 static volatile int cfg_margin = 600, cfg_min_dz = 1500, cfg_kp = 0;
 // sens[axis*2+0/-1] = faktor jangkauan per arah; 50% memberi power 2x, 100% normal, 200% memberi power 0.5x.
 static volatile int sens[8] = {100,100,100,100,100,100,100,100};
+static volatile int stick_power[2] = {100,100};
 // Offset manual per axis: koreksi titik tengah hasil kalibrasi.
 static volatile int cfg_offset[4] = {0,0,0,0};
 static volatile int dir_min[16] = {100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100};
@@ -52,11 +53,13 @@ static char token[17];
 static const char *www = "/data/local/tmp/padfix_index.html";
 static const char *match = "";
 static const int AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
+static int SRC_AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
 static unsigned char pressed_key[KEY_MAX + 1];
 static volatile int stick_offset[4];
 static volatile int recording=0;
 static pid_t recorder_pid=-1;
 static char recording_path[256]="";
+static char capture_message[96]="";
 static int capture_down=0,capture_long_fired=0;
 static int64_t capture_press_ms=0,capture_last_tap_ms=0;
 static void capture_button_event(int value);
@@ -71,28 +74,31 @@ static void save_config(void) {
     for(int i=0;i<4;i++)fprintf(f,"%d%c",cfg_offset[i],i==3?'\n':' ');
     for(int i=0;i<16;i++)fprintf(f,"%d%c",dir_min[i],i==15?'\n':' ');
     for(int i=0;i<16;i++)fprintf(f,"%d%c",dir_max[i],i==15?'\n':' ');
+    fprintf(f,"%d %d\n",stick_power[0],stick_power[1]);
     if(fclose(f)==0){if(rename(tmp,config_path)!=0)unlink(tmp);}else unlink(tmp);
 }
 static void load_config(void) {
     FILE *f=fopen(config_path,"r");if(!f)return;
-    int m,z,k,s[8],o[4],dmin[16],dmax[16],ok=fscanf(f,"%d%d%d",&m,&z,&k)==3;
+    int m,z,k,s[8],o[4],dmin[16],dmax[16],pL=100,pR=100,ok=fscanf(f,"%d%d%d",&m,&z,&k)==3;
     for(int i=0;ok&&i<8;i++)ok=fscanf(f,"%d",&s[i])==1&&s[i]>=50&&s[i]<=200;
     for(int i=0;ok&&i<4;i++)ok=fscanf(f,"%d",&o[i])==1&&o[i]>=-30000&&o[i]<=30000;
     int have_dir=1; for(int i=0;i<16;i++) if(fscanf(f,"%d",&dmin[i])!=1||dmin[i]<50||dmin[i]>200) have_dir=0;
     for(int i=0;i<16;i++) if(have_dir&&(fscanf(f,"%d",&dmax[i])!=1||dmax[i]<50||dmax[i]>200)) have_dir=0;
+    int have_power=fscanf(f,"%d%d",&pL,&pR)==2&&pL>=50&&pL<=200&&pR>=50&&pR<=200;
     fclose(f);
     if(ok&&m>=0&&m<=30000&&z>=0&&z<=30000&&k>=0&&k<=100){
         cfg_margin=m;cfg_min_dz=z;cfg_kp=k;
         for(int i=0;i<8;i++)sens[i]=s[i];
         for(int i=0;i<4;i++)cfg_offset[i]=o[i];
         if(have_dir){for(int i=0;i<16;i++){dir_min[i]=dmin[i];dir_max[i]=dmax[i];}}
+        if(have_power){stick_power[0]=pL;stick_power[1]=pR;}
         printf("Konfigurasi terakhir dipulihkan.\n");
     }
 }
 
 
 static void on_sig(int s) { (void)s; running = 0; }
-static int idx_of(int code) { for (int i = 0; i < 4; i++) if (AX[i] == code) return i; return -1; }
+static int idx_of(int code) { for (int i = 0; i < 4; i++) if (SRC_AX[i] == code) return i; return -1; }
 static int tbit(int b, const unsigned long *a) { return (a[b / BPL] >> (b % BPL)) & 1; }
 static int64_t now_ms(void) {
     struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
@@ -320,9 +326,15 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     int lo[4]={-32768,-32768,-32768,-32768};
     int hi[4]={32767,32767,32767,32767};
     int half[4]={32767,32767,32767,32767},oc[4]={0,0,0,0};
+    SRC_AX[0]=ABS_X; SRC_AX[1]=ABS_Y;
+    SRC_AX[2]=ABS_RX; SRC_AX[3]=ABS_RY;
+    if(!(tbit(ABS_RX,absbits)&&tbit(ABS_RY,absbits)) && tbit(ABS_Z,absbits)&&tbit(ABS_RZ,absbits)){
+        SRC_AX[2]=ABS_Z; SRC_AX[3]=ABS_RZ;
+    }
+    printf("[ANALOG] Axis mapping: L=%d/%d R=%d/%d -> virtual X/Y/RX/RY.\n",SRC_AX[0],SRC_AX[1],SRC_AX[2],SRC_AX[3]);
     for(int i=0;i<4;i++){
         struct input_absinfo ai;
-        if(ioctl(fd,EVIOCGABS(AX[i]),&ai)==0){
+        if(ioctl(fd,EVIOCGABS(SRC_AX[i]),&ai)==0){
             lo[i]=ai.minimum;hi[i]=ai.maximum;
             if(hi[i]<=lo[i]){lo[i]=-32768;hi[i]=32767;}
             half[i]=(hi[i]-lo[i])/2;oc[i]=(hi[i]+lo[i])/2;
@@ -418,7 +430,10 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                     int fixed_value=oc[i]+(int)so;
                     stick_offset[i]=(int)so;live_dz[i]=dz;
                     int vout=scale_to_virtual(fixed_value,lo[i],hi[i],-24000,24000);
+                    vout=(int)((long)vout*stick_power[i/2]/100);
+                    if(vout>24000)vout=24000;if(vout< -24000)vout=-24000;
                     live_fixed[i]=vout;
+                    e.code=AX[i];
                     if(vout==last[i])continue;
                     last[i]=vout;e.value=vout;
                 } else {
@@ -437,7 +452,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                 if(calibrating)continue;
                 last_key=e.code;
                 /* BTN_Z (309) is the Capture key on this controller. */
-                if(e.code==BTN_Z){capture_button_event(e.value);continue;}
+                if(e.code==BTN_Z||e.code==KEY_SYSRQ||e.code==KEY_CAMERA||e.code==BTN_TRIGGER_HAPPY1||e.code==BTN_TRIGGER_HAPPY2){capture_button_event(e.value);continue;}
                 if(e.code<=KEY_MAX&&virtual_key[e.code]){
                     int out_code=e.code;
                     /* Compensate Android's standard mapping for Nintendo X/Y layout. */
@@ -518,6 +533,7 @@ static int json_arr(const char *b, const char *key, int *v, int n) {
 }
 
 static int take_shot(void) {
+    mkdir("/sdcard/Pictures",0775); mkdir("/sdcard/Pictures/Padfix",0775);
     unlink(SHOT);
     pid_t pid = fork();
     if (pid < 0) return -1;
@@ -539,7 +555,7 @@ static int toggle_screen_recording(void) {
         int exited=0;
         for(int i=0;i<40;i++){int st;pid_t w=waitpid(recorder_pid,&st,WNOHANG);if(w==recorder_pid||(w<0&&errno==ECHILD)){exited=1;break;}usleep(100000);}
         if(!exited){kill(recorder_pid,SIGKILL);waitpid(recorder_pid,NULL,0);}
-        recorder_pid=-1;recording=0;
+        recorder_pid=-1;recording=0;snprintf(capture_message,sizeof capture_message,"Rekaman dihentikan");
         printf("[CAPTURE] SCREEN_RECORD_STOPPED: %s\n",recording_path);return 0;
     }
     mkdir("/sdcard/Movies",0775);mkdir(RECORD_DIR,0775);
@@ -549,13 +565,13 @@ static int toggle_screen_recording(void) {
     pid_t pid=fork();if(pid<0)return -1;
     if(pid==0){int nl=open("/dev/null",O_RDWR);if(nl>=0){dup2(nl,1);dup2(nl,2);if(nl>2)close(nl);}
         execl("/system/bin/screenrecord","screenrecord",recording_path,(char *)NULL);_exit(127);}
-    recorder_pid=pid;recording=1;printf("[CAPTURE] SCREEN_RECORD_STARTED: %s\n",recording_path);return 0;
+    recorder_pid=pid;recording=1;snprintf(capture_message,sizeof capture_message,"Rekaman dimulai");printf("[CAPTURE] SCREEN_RECORD_STARTED: %s\n",recording_path);return 0;
 }
 static void capture_button_event(int value) {
     int64_t now=now_ms();
     if(value && !capture_down){capture_down=1;capture_press_ms=now;capture_long_fired=0;
-        if(capture_last_tap_ms>0&&now-capture_last_tap_ms<=380){capture_last_tap_ms=0;capture_long_fired=1;
-            if(take_shot()==0)printf("[CAPTURE] SCREENSHOT_SAVED: %s\n",SHOT);else fprintf(stderr,"[CAPTURE] screenshot gagal.\n");
+        if(capture_last_tap_ms>0&&now-capture_last_tap_ms<=600){capture_last_tap_ms=0;capture_long_fired=1;
+            if(take_shot()==0){snprintf(capture_message,sizeof capture_message,"Screenshot tersimpan");printf("[CAPTURE] SCREENSHOT_SAVED: %s\n",SHOT);}else{snprintf(capture_message,sizeof capture_message,"Screenshot gagal");fprintf(stderr,"[CAPTURE] screenshot gagal.\n");}
         }else capture_last_tap_ms=now;
     }else if(!value&&capture_down){capture_down=0;if(capture_long_fired)capture_last_tap_ms=0;}
 }
@@ -564,6 +580,8 @@ static void capture_button_tick(void) {
         int st;pid_t w=waitpid(recorder_pid,&st,WNOHANG);
         if(w==recorder_pid||(w<0&&errno==ECHILD)){
             recorder_pid=-1;recording=0;
+            if(w==recorder_pid&&WIFEXITED(st)&&WEXITSTATUS(st)==0)snprintf(capture_message,sizeof capture_message,"Rekaman selesai");
+            else snprintf(capture_message,sizeof capture_message,"Rekaman gagal / terhenti");
             printf("[CAPTURE] SCREEN_RECORD_FINISHED: %s\n",recording_path);
         }
     }
@@ -600,8 +618,8 @@ static const char *calibration_label(void) {
 static void send_status(int c) {
     static char b[6144]; int o = 0;
     #define A(...) o += snprintf(b + o, sizeof b - (size_t)o, __VA_ARGS__)
-    A("{\"running\":%s,\"connected\":%s,\"grabbed\":%s,\"calibrated\":%s,\"virtualActive\":%s,\"recording\":%s,\"recordingFile\":\"%s\",\"state\":\"%s\",\"virtualStatus\":\"%s\",\"physicalStatus\":\"%s\",\"calibrationStatus\":\"%s\",\"name\":\"%s\",\"margin\":%d,\"min_dz\":%d,\"kp\":%d,\"last_key\":%d,\"sens\":[",
-      running ? "true" : "false", live_conn ? "true" : "false", live_grab ? "true" : "false", live_cal ? "true" : "false", virtual_active ? "true" : "false", recording ? "true" : "false", recording_path, state_label(), virtual_active ? "VIRTUAL_DEVICE_ACTIVE" : "INACTIVE", physical_label(), calibration_label(), dev_name, cfg_margin, cfg_min_dz, cfg_kp, last_key);
+    A("{\"running\":%s,\"connected\":%s,\"grabbed\":%s,\"calibrated\":%s,\"virtualActive\":%s,\"recording\":%s,\"recordingFile\":\"%s\",\"captureMessage\":\"%s\",\"power\":[%d,%d],\"axisMap\":[%d,%d,%d,%d],\"state\":\"%s\",\"virtualStatus\":\"%s\",\"physicalStatus\":\"%s\",\"calibrationStatus\":\"%s\",\"name\":\"%s\",\"margin\":%d,\"min_dz\":%d,\"kp\":%d,\"last_key\":%d,\"sens\":[",
+      running ? "true" : "false", live_conn ? "true" : "false", live_grab ? "true" : "false", live_cal ? "true" : "false", virtual_active ? "true" : "false", recording ? "true" : "false", recording_path, capture_message, stick_power[0], stick_power[1], SRC_AX[0], SRC_AX[1], SRC_AX[2], SRC_AX[3], state_label(), virtual_active ? "VIRTUAL_DEVICE_ACTIVE" : "INACTIVE", physical_label(), calibration_label(), dev_name, cfg_margin, cfg_min_dz, cfg_kp, last_key);
     for (int i = 0; i < 8; i++) A("%s%d", i ? "," : "", sens[i]);
     A("],\"offset\":[%d,%d,%d,%d],\"raw\":[%d,%d,%d,%d],\"fixed\":[%d,%d,%d,%d],\"center\":[%d,%d,%d,%d],\"deadzone\":[%d,%d,%d,%d],\"buttons\":[",
       cfg_offset[0], cfg_offset[1], cfg_offset[2], cfg_offset[3], live_raw[0], live_raw[1], live_raw[2], live_raw[3], live_fixed[0], live_fixed[1], live_fixed[2], live_fixed[3],
@@ -645,6 +663,8 @@ static void handle(int c) {
         if (json_arr(body, "sens", a, 8)) { int ok = 1; for (int i = 0; i < 8; i++) if (a[i] < 50 || a[i] > 200) ok = 0; if (ok) for (int i = 0; i < 8; i++) sens[i] = a[i]; }
         if (json_arr(body, "sensL", a, 4)) { int ok = 1; for (int i = 0; i < 4; i++) if (a[i] < 50 || a[i] > 200) ok = 0; if (ok) for (int i = 0; i < 4; i++) sens[i] = a[i]; }
         if (json_arr(body, "sensR", a, 4)) { int ok = 1; for (int i = 0; i < 4; i++) if (a[i] < 50 || a[i] > 200) ok = 0; if (ok) for (int i = 0; i < 4; i++) sens[i + 4] = a[i]; }
+        if(json_int(body,"powerL",&v)&&v>=50&&v<=200)stick_power[0]=v;
+        if(json_int(body,"powerR",&v)&&v>=50&&v<=200)stick_power[1]=v;
         if (json_arr(body, "offset", off, 4)) { int ok = 1; for (int i = 0; i < 4; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 4; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetL", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i] = off[i]; }
         if (json_arr(body, "offsetR", off, 2)) { int ok = 1; for (int i = 0; i < 2; i++) if (off[i] < -30000 || off[i] > 30000) ok = 0; if (ok) for (int i = 0; i < 2; i++) cfg_offset[i + 2] = off[i]; }
@@ -656,14 +676,18 @@ static void handle(int c) {
     } else if (post && !strcmp(path, "/api/reset")) {
         cfg_margin = 600; cfg_min_dz = 1500; cfg_kp = 0;
         for (int i = 0; i < 8; i++) sens[i] = 100;
+        stick_power[0]=stick_power[1]=100;
         for (int i = 0; i < 4; i++) cfg_offset[i] = 0;
         for (int i = 0; i < 16; i++) dir_min[i] = dir_max[i] = 100;
         save_config();
         jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/recal")) { want_recal = 1; jreply(c, "200 OK", "{\"ok\":true}");
     } else if (post && !strcmp(path, "/api/screenshot")) {
-        if (take_shot() == 0) jreply(c, "200 OK", "{\"ok\":true}");
-        else jreply(c, "500 Internal Server Error", "{\"error\":\"screencap gagal (butuh user shell/ADB/Shizuku; app FLAG_SECURE tampil hitam)\"}");
+        if (take_shot() == 0) {snprintf(capture_message,sizeof capture_message,"Screenshot tersimpan");jreply(c, "200 OK", "{\"ok\":true}");}
+        else {snprintf(capture_message,sizeof capture_message,"Screenshot gagal");jreply(c, "500 Internal Server Error", "{\"error\":\"screencap gagal; periksa izin Shizuku/shell\"}");}
+    } else if (post && !strcmp(path, "/api/record")) {
+        if(toggle_screen_recording()==0)jreply(c,"200 OK","{\"ok\":true}");
+        else jreply(c,"500 Internal Server Error","{\"error\":\"screenrecord gagal dijalankan\"}");
     } else if (post && !strcmp(path, "/api/stop")) { jreply(c, "200 OK", "{\"ok\":true}"); running = 0;
     } else jreply(c, "404 Not Found", "{\"error\":\"not found\"}");
 }
