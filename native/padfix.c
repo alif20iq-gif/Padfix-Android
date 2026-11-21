@@ -232,6 +232,7 @@ static void release_virtual_inputs(void) {
         memset(&out[n],0,sizeof out[n]); out[n].type=EV_ABS; out[n].code=axes[i]; out[n].value=0; n++;
         live_fixed[i]=0;
     }
+    memset(&out[n],0,sizeof out[n]); out[n].type=EV_SYN; out[n].code=SYN_REPORT; n++;
     emit_batch(out,n);
 }
 
@@ -262,6 +263,11 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     ioctl(fd,EVIOCGBIT(EV_KEY,sizeof keybits),keybits);
     ioctl(fd,EVIOCGBIT(EV_ABS,sizeof absbits),absbits);
     char rname[128]={0}; ioctl(fd,EVIOCGNAME(sizeof rname),rname);
+    memset(have_key,0,sizeof have_key);
+    for(int k=0;k<=KEY_MAX;k++)if(tbit(k,keybits))have_key[k]=1;
+    have_key[BTN_DPAD_UP]=have_key[BTN_DPAD_DOWN]=1;
+    have_key[BTN_DPAD_LEFT]=have_key[BTN_DPAD_RIGHT]=1;
+    memset(pressed_key,0,sizeof pressed_key);
     int lo[4]={-32768,-32768,-32768,-32768};
     int hi[4]={32767,32767,32767,32767};
     int half[4]={32767,32767,32767,32767},oc[4]={0,0,0,0};
@@ -486,7 +492,7 @@ static void send_status(int c) {
       cfg_offset[0], cfg_offset[1], cfg_offset[2], cfg_offset[3], live_raw[0], live_raw[1], live_raw[2], live_raw[3], live_fixed[0], live_fixed[1], live_fixed[2], live_fixed[3],
       live_center[0], live_center[1], live_center[2], live_center[3], live_dz[0], live_dz[1], live_dz[2], live_dz[3]);
     int first = 1;
-    for (int k = 1; k <= KEY_MAX; k++) if (virtual_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
+    for (int k = 1; k <= KEY_MAX; k++) if (have_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
     A("],\"pressed\":["); first = 1;
     for (int k = 1; k <= KEY_MAX; k++) if (pressed_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
     A("]}");
