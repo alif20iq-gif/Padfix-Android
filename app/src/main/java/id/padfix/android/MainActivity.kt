@@ -48,6 +48,10 @@ class MainActivity : Activity() {
         window.navigationBarColor = Color.rgb(11, 16, 32)
         Shizuku.addRequestPermissionResultListener(permissionListener)
         createCalibrationNotificationChannel()
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
+        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(11, 16, 32))
@@ -150,7 +154,7 @@ class MainActivity : Activity() {
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL,
                 "Status kalibrasi gamepad",
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Pemberitahuan singkat saat gamepad fisik tersambung dan selesai dikalibrasi"
                 setShowBadge(false)
@@ -166,6 +170,7 @@ class MainActivity : Activity() {
         notifierHandler.removeCallbacksAndMessages(null)
         notificationPollActive = true
         lastCalibrationStatus = ""
+        showPersistentGamepadNotification("VIRTUAL GAMEPAD AKTIF", "Menunggu controller fisik • R3 keep-alive setiap 10 detik.")
         pollBackendState(token, notificationGeneration)
     }
 
@@ -174,6 +179,7 @@ class MainActivity : Activity() {
         thread(name = "Padfix-state-notifier") {
             var calibration = ""
             var physical = ""
+            var virtualActive = false
             try {
                 val connection = (URL("http://127.0.0.1:8765/api/status").openConnection() as HttpURLConnection).apply {
                     connectTimeout = 900
@@ -186,6 +192,7 @@ class MainActivity : Activity() {
                     val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
                     calibration = json.optString("calibrationStatus", "")
                     physical = json.optString("physicalStatus", "")
+                    virtualActive = json.optBoolean("virtualActive", false)
                 } finally {
                     connection.disconnect()
                 }
@@ -194,46 +201,38 @@ class MainActivity : Activity() {
             }
             runOnUiThread {
                 if (!notificationPollActive || generation != notificationGeneration) return@runOnUiThread
-                when (calibration) {
-                    "CALIBRATION_IN_PROGRESS" -> {
-                        if (lastCalibrationStatus != calibration) showCalibrationNotification(false)
-                        lastCalibrationStatus = calibration
-                    }
-                    "CALIBRATION_COMPLETE" -> {
-                        if (lastCalibrationStatus != calibration) showCalibrationNotification(true)
-                        lastCalibrationStatus = calibration
-                    }
-                    else -> {
-                        if (physical == "PHYSICAL_GAMEPAD_DISCONNECTED") {
-                            getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
-                        }
-                        lastCalibrationStatus = calibration
-                    }
+                when {
+                    calibration == "CALIBRATION_IN_PROGRESS" ->
+                        showPersistentGamepadNotification("GAMEPAD FISIK TERHUBUNG", "Kalibrasi sedang berlangsung... Jangan tekan tombol atau gerakkan analog.")
+                    calibration == "CALIBRATION_COMPLETE" && physical == "PHYSICAL_GAMEPAD_CONNECTED" ->
+                        showPersistentGamepadNotification("PADFIX AKTIF", "Virtual gamepad aktif • Controller fisik siap digunakan.")
+                    physical == "PHYSICAL_GAMEPAD_CONNECTED" ->
+                        showPersistentGamepadNotification("GAMEPAD FISIK TERHUBUNG", "Virtual gamepad aktif • Memantau controller fisik.")
+                    virtualActive ->
+                        showPersistentGamepadNotification("VIRTUAL GAMEPAD AKTIF", "Menunggu controller fisik • R3 keep-alive setiap 10 detik.")
+                    else -> Unit
                 }
+                lastCalibrationStatus = calibration
                 notifierHandler.postDelayed({ pollBackendState(token, generation) }, 850)
             }
         }
     }
 
-    private fun showCalibrationNotification(complete: Boolean) {
+    private fun showPersistentGamepadNotification(title: String, message: String) {
         val builder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
             Notification.Builder(this, NOTIFICATION_CHANNEL) else Notification.Builder(this)
         builder.setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(if (complete) "KALIBRASI SELESAI" else "GAMEPAD TERHUBUNG")
-            .setContentText(
-                if (complete) "Gamepad siap digunakan. Selamat bermain."
-                else "Kalibrasi sedang berlangsung... Jangan tekan tombol atau gerakkan analog."
-            )
+            .setContentTitle(title)
+            .setContentText(message)
             .setCategory(Notification.CATEGORY_STATUS)
             .setOnlyAlertOnce(true)
-            .setAutoCancel(complete)
-        if (complete) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) builder.setTimeoutAfter(2800)
-            else notifierHandler.postDelayed({ getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) }, 2800)
-        } else {
-            builder.setOngoing(true)
+            .setAutoCancel(false)
+            .setOngoing(false) // Pengguna dapat menutupnya sendiri dari notification shade.
+        try {
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, builder.build())
+        } catch (_: SecurityException) {
+            // Izin notifikasi Android 13+ belum diberikan.
         }
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, builder.build())
     }
 
     private fun stopBackend() {
@@ -299,6 +298,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_CODE = 2907
+        private const val NOTIFICATION_PERMISSION_REQUEST = 2909
         private const val NOTIFICATION_CHANNEL = "padfix_gamepad_calibration"
         private const val NOTIFICATION_ID = 2908
     }
