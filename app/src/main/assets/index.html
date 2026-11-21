@@ -15,6 +15,10 @@
 <div class="stickbox"><div class="sticktitle"><b>Joystick kanan</b><span id="rv" class="s">—</span></div><div class="padwrap"><canvas id="monR" class="pad" width="300" height="300"></canvas></div><div id="rm" class="metrics"></div></div>
 </div><p id="ax" class="s"></p></section>
 <section class="card"><h3 class="sectiontitle">Pengaturan jangkauan dan offset</h3><p class="s">Mode V11: hanya empat sumbu analog yang dikoreksi. D-pad ABS_HAT diterjemahkan menjadi tombol BTN_DPAD virtual; tombol lain, trigger, dan event non-analog diteruskan tanpa perubahan. Perubahan wheel offset dan jangkauan langsung diterapkan otomatis saat digeser, tanpa tombol Terapkan.</p><p class="s">Jangkauan adalah jarak gerak fisik yang dipetakan ke output analog penuh, bukan kecepatan pemicu. Nilai lebih besar = perlu gerakan fisik lebih jauh; nilai lebih kecil = jangkauan output penuh tercapai lebih cepat. Atur tiap arah secara terpisah untuk menyeimbangkan sisi yang pendek akibat offset/drift.</p>
+<div class="grid" style="margin:10px 0">
+<div class="stickbox"><div class="row"><b>Power analog kiri</b><output id="powerOutL">100%</output></div><input id="powerL" type="range" min="50" max="200" step="1" value="100" oninput="changePower(0,this.value)"><div class="s">50% lebih lemah · 100% normal · 150% = 1,5× · 200% = 2×</div></div>
+<div class="stickbox"><div class="row"><b>Power analog kanan</b><output id="powerOutR">100%</output></div><input id="powerR" type="range" min="50" max="200" step="1" value="100" oninput="changePower(1,this.value)"><div class="s">50% lebih lemah · 100% normal · 150% = 1,5× · 200% = 2×</div></div>
+</div>
 <div class="grid">
 <div class="stickbox"><div class="sticktitle"><b>Jangkauan kiri</b><span id="svL" class="s"></span></div><div class="padwrap"><canvas id="sensL" class="pad small" width="240" height="240"></canvas><div class="hint">Arah seretan memilih sisi. Arah seretan menentukan arah prioritas. Semakin jauh dari pusat, semakin kuat power ke arah tersebut (hingga 2×).</div></div><div id="sensTxtL" class="metrics"></div><p><span class="s">Diterapkan otomatis saat wheel digeser.</span> <button type="button" class="d" onclick="resetStick(0)">Reset kiri</button></p></div>
 <div class="stickbox"><div class="sticktitle"><b>Jangkauan kanan</b><span id="svR" class="s"></span></div><div class="padwrap"><canvas id="sensR" class="pad small" width="240" height="240"></canvas><div class="hint">Arah seretan memilih sisi. Arah seretan menentukan arah prioritas. Semakin jauh dari pusat, semakin kuat power ke arah tersebut (hingga 2×).</div></div><div id="sensTxtR" class="metrics"></div><p><span class="s">Diterapkan otomatis saat wheel digeser.</span> <button type="button" class="d" onclick="resetStick(1)">Reset kanan</button></p></div>
@@ -82,7 +86,17 @@ function bindPad(id,kind,stick){
  c.addEventListener('pointerup',finish);c.addEventListener('pointercancel',finish);c.addEventListener('lostpointercapture',()=>{activePointer=null});
  c.addEventListener('contextmenu',e=>e.preventDefault());
 }
-function drawSettings(){for(let s=0;s<2;s++){drawPad(s?'sensR':'sensL',sensPoint(s),'sens');drawPad(s?'offR':'offL',offPoint(s),'offset');let i=s*4,j=s*2;$('sensTxt'+(s?'R':'L')).textContent=`Kiri ${state.sens[i]}% · Kanan ${state.sens[i+1]}% · Atas ${state.sens[i+2]}% · Bawah ${state.sens[i+3]}% (power: ${Math.round(10000/state.sens[i]) / 100}× / ${Math.round(10000/state.sens[i+1]) / 100}× / ${Math.round(10000/state.sens[i+2]) / 100}× / ${Math.round(10000/state.sens[i+3]) / 100}×)`;$('offTxt'+(s?'R':'L')).textContent=`Offset X: ${state.offset[j]} · Y: ${state.offset[j+1]}`;$('sv'+(s?'R':'L')).textContent='Power 0,5×–2×';$('ov'+(s?'R':'L')).textContent='±4500'}}
+function changePower(stick,value){
+ const power=Math.max(50,Math.min(200,Math.round(Number(value)||100)));
+ const base=stick*4, factor=Math.max(50,Math.min(200,Math.round(10000/power)));
+ for(let i=0;i<4;i++)state.sens[base+i]=factor;
+ $('powerOut'+(stick?'R':'L')).textContent=power+'%';
+ scheduleStickApply(stick,true);
+}
+function drawSettings(){for(let s=0;s<2;s++){
+ const power=Math.round(10000/(state.sens[s*4]||100));
+ $('power'+(s?'R':'L')).value=power;
+ $('powerOut'+(s?'R':'L')).textContent=power+'%';drawPad(s?'sensR':'sensL',sensPoint(s),'sens');drawPad(s?'offR':'offL',offPoint(s),'offset');let i=s*4,j=s*2;$('sensTxt'+(s?'R':'L')).textContent=`Kiri ${state.sens[i]}% · Kanan ${state.sens[i+1]}% · Atas ${state.sens[i+2]}% · Bawah ${state.sens[i+3]}% (power: ${Math.round(10000/state.sens[i]) / 100}× / ${Math.round(10000/state.sens[i+1]) / 100}× / ${Math.round(10000/state.sens[i+2]) / 100}× / ${Math.round(10000/state.sens[i+3]) / 100}×)`;$('offTxt'+(s?'R':'L')).textContent=`Offset X: ${state.offset[j]} · Y: ${state.offset[j+1]}`;$('sv'+(s?'R':'L')).textContent='Power 0,5×–2×';$('ov'+(s?'R':'L')).textContent='±4500'}}
 function drawMonitor(id,xv,yv){drawPad(id,{x:Math.max(-1,Math.min(1,xv/32767)),y:Math.max(-1,Math.min(1,yv/32767))},'monitor')}
 let refreshing=false,monitorTarget=[0,0,0,0],monitorCurrent=[0,0,0,0];
 function animateMonitor(){
