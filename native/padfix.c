@@ -54,6 +54,7 @@ static int64_t capture_last_click_ms = 0;
 static int capture_recording = 0;
 static pid_t capture_recorder_pid = -1;
 static char capture_recording_path[256] = "";
+static void capture_click_tick(void);
 
 static const char *config_path = "/data/local/tmp/padfix.conf";
 static void save_config(void) {
