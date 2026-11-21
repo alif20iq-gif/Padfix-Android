@@ -230,7 +230,9 @@ static int session(const char *fixed, int cal_ms, int *announced) {
         if (r < 0 && errno != EINTR) break;
         if (r <= 0) continue;
         if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) break;
-        struct input_event ev[64], out_ev[64];
+        // Satu read memuat maksimum 64 event. ABS_HAT dapat berkembang menjadi 2 EV_KEY,
+        // jadi sediakan kapasitas 128 agar kombinasi tombol/analog tidak terpotong.
+        struct input_event ev[64], out_ev[128];
         ssize_t n = read(fd, ev, sizeof ev);
         if (n < 0) { if (errno == EAGAIN || errno == EINTR) continue; break; }   // ENODEV = dilepas
         size_t out_count = 0;
@@ -244,7 +246,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                 struct input_event k;
                 memset(&k, 0, sizeof k);
                 k.type = EV_KEY; k.code = negative_key; k.value = (e.value < 0) ? 1 : 0;
-                if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = k;
+                out_ev[out_count++] = k;
                 k.code = positive_key; k.value = (e.value > 0) ? 1 : 0;
                 if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = k;
             } else if (e.type == EV_ABS) {
@@ -283,7 +285,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                     if (out == last[i]) continue;
                     last[i] = out; e.value = out;
                 }
-                if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
+                out_ev[out_count++] = e;
             } else if (e.type == EV_KEY) {
                 // PASS-THROUGH MURNI: tombol fisik tidak di-remap, difilter,
                 // atau diubah nilainya. Padfix hanya memproses ABS_X/Y/RX/RY.
