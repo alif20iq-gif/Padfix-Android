@@ -1,9 +1,29 @@
 <!doctype html>
-<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Padfix V10</title>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Padfix</title>
 <style>
-:root{color-scheme:dark}*{box-sizing:border-box}html,body{overscroll-behavior:none}body{margin:0;background:#0b1020;color:#e8edf7;font:15px system-ui;overscroll-behavior:none}main{max-width:960px;margin:auto;padding:14px}.card{background:#151e33;border:1px solid #293653;border-radius:14px;padding:14px;margin:10px 0}.m{color:#9eacc7}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.big{font-size:22px;font-weight:700}button,input,select{font:inherit;border-radius:9px;padding:8px;border:1px solid #435577;background:#202d48;color:#fff}button{cursor:pointer}button.d{background:#572b3a}input[type=range]{width:100%;padding:0}.row{display:flex;gap:8px;align-items:center;margin:7px 0;flex-wrap:wrap}.row b{min-width:90px}.s{font-size:12px;color:#aebbd3}.padwrap{display:flex;flex-direction:column;align-items:center;gap:7px}.pad{width:min(100%,250px);aspect-ratio:1;display:block;background:#0d1528;border:1px solid #354766;border-radius:50%;touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:contain}.pad.small{width:min(100%,210px)}.pad:active{border-color:#69e0a1}.padlabel{font-weight:700}.hint{font-size:12px;color:#9eacc7;text-align:center;max-width:280px}.stickbox{background:#10192c;border:1px solid #293653;border-radius:12px;padding:12px}.sticktitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.metrics{font-size:12px;color:#aebbd3;line-height:1.6}.sectiontitle{margin:0 0 10px}.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}img{max-width:100%;border-radius:10px;margin-top:8px}canvas{touch-action:none;pointer-events:auto;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}button{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}select{touch-action:manipulation;user-select:none;-webkit-user-select:none}input[type=range]{touch-action:pan-y}button{ -webkit-tap-highlight-color:transparent }#bt .row{border-bottom:1px solid #293653;padding:5px 0}
+:root{color-scheme:light;--bg:#f2f7fc;--card:#fff;--ink:#203449;--muted:#71869b;--line:#dce8f2;--blue:#438fc5;--blue2:#e8f3fb;--danger:#fff0f0;--shadow:0 5px 18px rgba(49,92,125,.07)}
+*{box-sizing:border-box}html,body{overscroll-behavior:none}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,sans-serif;overscroll-behavior:none}
+main{max-width:980px;margin:auto;padding:18px 14px 34px}h1{font-size:27px;letter-spacing:-.7px;margin:6px 2px 16px;color:#24435d}h2,h3{color:#2b4c67}h3{font-size:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:17px;padding:16px;margin:12px 0;box-shadow:var(--shadow)}
+.m{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.big{font-size:20px;font-weight:750;color:#2c638d}
+button,input,select{font:inherit;border-radius:10px;padding:9px 12px;border:1px solid #cbdce9;background:#f8fbfe;color:var(--ink)}
+button{cursor:pointer;font-weight:650;background:var(--blue);border-color:var(--blue);color:#fff;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+button.d{background:var(--danger);border-color:#f1d4d4;color:#a14e56}button:active{transform:translateY(1px)}
+input[type=range]{width:100%;padding:0;accent-color:var(--blue);touch-action:pan-y}
+.row{display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap}.row b{min-width:90px}.s{font-size:12px;color:var(--muted)}
+.padwrap{display:flex;flex-direction:column;align-items:center;gap:7px}.pad{width:min(100%,250px);aspect-ratio:1;display:block;background:#f7fbff;border:1px solid #d8e6f1;border-radius:50%;touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:contain}.pad.small{width:min(100%,190px)}
+.pad:active{border-color:var(--blue)}.hint{font-size:12px;color:var(--muted);text-align:center;max-width:280px}
+.stickbox{background:#f9fcff;border:1px solid var(--line);border-radius:13px;padding:12px;min-width:0}.sticktitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.metrics{font-size:12px;color:#647d92;line-height:1.65;overflow-wrap:anywhere}.sectiontitle{margin:0 0 10px}
+img{max-width:100%;border-radius:10px;margin-top:8px}canvas{touch-action:none;pointer-events:auto;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+select{touch-action:manipulation;user-select:none;-webkit-user-select:none}#buttonCheck .stickbox{background:#fff}
+.powercard{background:linear-gradient(145deg,#f8fcff,#edf6fd);border:1px solid #d9e9f5;border-radius:13px;padding:13px}
+.powerhead{display:flex;justify-content:space-between;align-items:center;font-weight:700;margin-bottom:7px}.powerhead output{color:#327fb5;font-size:17px;font-weight:750}
+.statusgrid{align-items:center}.feature{background:#f7fbff;border:1px solid var(--line);border-radius:12px;padding:12px}
+@media(max-width:520px){main{padding:12px 10px 28px}.card{padding:13px;border-radius:15px}h1{font-size:24px}.grid{grid-template-columns:1fr}.pad{width:min(100%,230px)}}
+
 </style></head><body><main>
-<h1>🎮 Padfix <span class="m">V11</span></h1>
+<h1>🎮 Padfix <span class="m">CONTROL CENTER</span></h1>
 <section class="card"><div class="grid"><div><div class="m">Gamepad</div><div id="st" class="big">Memuat…</div><div id="nm" class="s"></div></div><div><div class="m">Kalibrasi</div><div id="cal" class="big">—</div></div><div><div class="m">Tombol terakhir</div><div id="lk" class="big">—</div></div></div><p><button onclick="post('/api/recal',{})">Kalibrasi ulang (lepas stik)</button> <button class="d" onclick="if(confirm('Hentikan Padfix?'))post('/api/stop',{})">Stop</button></p></section>
 <section class="card"><h3 class="sectiontitle">Preset konfigurasi</h3>
 <p class="s">Preset disimpan di penyimpanan lokal browser/WebView pada perangkat ini. Simpan konfigurasi yang sedang tampil, lalu muat kembali kapan saja.</p>
@@ -14,7 +34,13 @@
 <div class="stickbox"><div class="sticktitle"><b>Joystick kiri</b><span id="lv" class="s">—</span></div><div class="padwrap"><canvas id="monL" class="pad" width="300" height="300"></canvas></div><div id="lm" class="metrics"></div></div>
 <div class="stickbox"><div class="sticktitle"><b>Joystick kanan</b><span id="rv" class="s">—</span></div><div class="padwrap"><canvas id="monR" class="pad" width="300" height="300"></canvas></div><div id="rm" class="metrics"></div></div>
 </div><p id="ax" class="s"></p></section>
-<section class="card"><h3 class="sectiontitle">Pengaturan jangkauan dan offset</h3><p class="s">Mode V10: hanya empat sumbu analog yang dikoreksi. D-pad ABS_HAT diterjemahkan menjadi tombol BTN_DPAD virtual; tombol lain, trigger, dan event non-analog diteruskan tanpa perubahan.</p><p class="s">Jangkauan adalah jarak gerak fisik yang dipetakan ke output analog penuh, bukan kecepatan pemicu. Nilai lebih besar = perlu gerakan fisik lebih jauh; nilai lebih kecil = jangkauan output penuh tercapai lebih cepat. Atur tiap arah secara terpisah untuk menyeimbangkan sisi yang pendek akibat offset/drift.</p>
+<section class="card"><h3 class="sectiontitle">Power analog</h3>
+<p class="s">Atur kekuatan respons masing-masing stik. Nilai diterapkan otomatis dan tidak mengubah D-pad maupun tombol fisik.</p>
+<div class="grid">
+<div class="powercard"><div class="powerhead"><span>Power analog kiri</span><output id="powerOutL">100%</output></div><input id="powerL" type="range" min="50" max="200" step="1" value="100" oninput="changePower(0,this.value)"><div class="s">50% lebih lemah · 100% normal · 150% = 1,5× · 200% = 2×</div></div>
+<div class="powercard"><div class="powerhead"><span>Power analog kanan</span><output id="powerOutR">100%</output></div><input id="powerR" type="range" min="50" max="200" step="1" value="100" oninput="changePower(1,this.value)"><div class="s">50% lebih lemah · 100% normal · 150% = 1,5× · 200% = 2×</div></div>
+</div><div id="powerMsg" class="s" aria-live="polite"></div></section>
+<section class="card"><h3 class="sectiontitle">Pengaturan jangkauan dan offset</h3><p class="s">Pemrosesan analog mengikuti jalur versi stabil. D-pad fisik diproses terpisah dari empat sumbu analog.</p><p class="s">Jangkauan adalah jarak gerak fisik yang dipetakan ke output analog penuh, bukan kecepatan pemicu. Nilai lebih besar = perlu gerakan fisik lebih jauh; nilai lebih kecil = jangkauan output penuh tercapai lebih cepat. Atur tiap arah secara terpisah untuk menyeimbangkan sisi yang pendek akibat offset/drift.</p>
 <div class="grid">
 <div class="stickbox"><div class="sticktitle"><b>Jangkauan kiri</b><span id="svL" class="s"></span></div><div class="padwrap"><canvas id="sensL" class="pad small" width="240" height="240"></canvas><div class="hint">Arah seretan memilih sisi. Arah seretan menentukan arah prioritas. Semakin jauh dari pusat, semakin kuat power ke arah tersebut (hingga 2×).</div></div><div id="sensTxtL" class="metrics"></div><p><button type="button" onclick="applySens(0)">Terapkan jangkauan kiri</button> <button type="button" class="d" onclick="resetStick(0)">Reset kiri</button></p></div>
 <div class="stickbox"><div class="sticktitle"><b>Jangkauan kanan</b><span id="svR" class="s"></span></div><div class="padwrap"><canvas id="sensR" class="pad small" width="240" height="240"></canvas><div class="hint">Arah seretan memilih sisi. Arah seretan menentukan arah prioritas. Semakin jauh dari pusat, semakin kuat power ke arah tersebut (hingga 2×).</div></div><div id="sensTxtR" class="metrics"></div><p><button type="button" onclick="applySens(1)">Terapkan jangkauan kanan</button> <button type="button" class="d" onclick="resetStick(1)">Reset kanan</button></p></div>
@@ -25,6 +51,11 @@
 <div class="row"><b>DZ minimum</b><input id="minz" type="range" min="0" max="12000" step="100" style="flex:1"><output id="zo"></output></div>
 <div class="row"><b>Sisi terpotong</b><input id="kp" type="range" min="0" max="100" style="flex:1"><output id="ko"></output></div>
 <div class="row"><button type="button" onclick="applyGeneral()">Terapkan margin / DZ / sisi terpotong</button><button type="button" class="d" onclick="resetAll()">Reset semua pengaturan</button><span id="msg" class="s"></span></div></section>
+<section class="card"><h3 class="sectiontitle">Screen capture & screen record</h3>
+<div class="grid">
+<div class="feature"><b>Screenshot sistem</b><p class="s">Tekan tombol Capture pada controller dua kali dengan cepat untuk memicu screenshot bawaan Android.</p></div>
+<div class="feature"><b>Rekam layar</b><p class="s">Tekan tombol Capture tiga kali dengan cepat untuk membuka kontrol perekam layar TECNO. Indikator dan notifikasi mengikuti sistem.</p></div>
+</div></section>
 <section class="card"><h3 class="sectiontitle">Pengecekan tombol fisik</h3><p class="s">Daftar tombol yang didukung controller. Tekan tombol fisik untuk melihat kode tombol terakhir di panel Gamepad.</p><div id="buttonCheck" class="grid s">Menunggu data…</div></section><section class="card"><h3>Screenshot Android</h3><button onclick="shot()">Ambil screenshot</button> <span id="sm" class="s"></span><div><img id="im"></div></section>
 </main><script>
 const T=new URLSearchParams(location.search).get('t'),H={'X-Token':T,'Content-Type':'application/json'};const $=id=>document.getElementById(id);
@@ -40,8 +71,8 @@ document.addEventListener('dragstart',e=>{if(e.target.closest('button,canvas,inp
 const N={304:'A/South',305:'B/East',307:'X/North',308:'Y/West',310:'L',311:'R',312:'ZL',313:'ZR',314:'Minus',315:'Plus',316:'Home',317:'L3',318:'R3',544:'Dpad Up',545:'Dpad Down',546:'Dpad Left',547:'Dpad Right',309:'Capture'};const nmf=k=>(N[k]||'')+' ('+k+')';
 let state={sens:[100,100,100,100,100,100,100,100],offset:[0,0,0,0],margin:600,min_dz:1500,kp:0},sensCursor=[{x:0,y:0},{x:0,y:0}],built=false;
 async function post(p,b){try{let r=await fetch(p,{method:'POST',headers:H,body:JSON.stringify(b)});let j=await r.json().catch(()=>({}));if(!r.ok){$('msg').textContent=j.error||'Gagal';return null}if($('msg'))$('msg').textContent='Perintah berhasil ✓';return j}catch(e){$('msg').textContent='Koneksi gagal';return null}}
-function circle(c,x,y,r,color='#354766'){c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.strokeStyle=color;c.lineWidth=2;c.stroke()}
-function drawPad(id,point,kind){let c=$(id),x=c.getContext('2d'),w=c.width,h=c.height,cx=w/2,cy=h/2,r=w*.39;x.clearRect(0,0,w,h);circle(x,cx,cy,r);circle(x,cx,cy,r*.5,'#263957');x.beginPath();x.moveTo(cx-r,cy);x.lineTo(cx+r,cy);x.moveTo(cx,cy-r);x.lineTo(cx,cy+r);x.strokeStyle='#263957';x.stroke();if(kind==='sens'){x.fillStyle='#69e0a1';x.globalAlpha=.12;x.beginPath();x.arc(cx,cy,r,0,Math.PI*2);x.fill();x.globalAlpha=1}let px=cx+point.x*r,py=cy+point.y*r;x.beginPath();x.moveTo(cx,cy);x.lineTo(px,py);x.strokeStyle=kind==='monitor'?'#69e0a1':kind==='offset'?'#f5b85b':'#69e0a1';x.lineWidth=3;x.stroke();x.beginPath();x.arc(px,py,9,0,Math.PI*2);x.fillStyle=x.strokeStyle;x.fill();x.beginPath();x.arc(cx,cy,3,0,Math.PI*2);x.fillStyle='#fff';x.fill()}
+function circle(c,x,y,r,color='#c4d7e8'){c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.strokeStyle=color;c.lineWidth=2;c.stroke()}
+function drawPad(id,point,kind){let c=$(id),x=c.getContext('2d'),w=c.width,h=c.height,cx=w/2,cy=h/2,r=w*.39;x.clearRect(0,0,w,h);circle(x,cx,cy,r);circle(x,cx,cy,r*.5,'#dceaf5');x.beginPath();x.moveTo(cx-r,cy);x.lineTo(cx+r,cy);x.moveTo(cx,cy-r);x.lineTo(cx,cy+r);x.strokeStyle='#dceaf5';x.stroke();if(kind==='sens'){x.fillStyle='#69e0a1';x.globalAlpha=.12;x.beginPath();x.arc(cx,cy,r,0,Math.PI*2);x.fill();x.globalAlpha=1}let px=cx+point.x*r,py=cy+point.y*r;x.beginPath();x.moveTo(cx,cy);x.lineTo(px,py);x.strokeStyle=kind==='monitor'?'#438fc5':kind==='offset'?'#d99a38':'#438fc5';x.lineWidth=3;x.stroke();x.beginPath();x.arc(px,py,9,0,Math.PI*2);x.fillStyle=x.strokeStyle;x.fill();x.beginPath();x.arc(cx,cy,3,0,Math.PI*2);x.fillStyle='#fff';x.fill()}
 function sensPoint(stick){return sensCursor[stick]}
 function offPoint(stick){let i=stick*2;return{x:Math.max(-1,Math.min(1,state.offset[i]/4500)),y:Math.max(-1,Math.min(1,state.offset[i+1]/4500))}}
 function bindPad(id,kind,stick){
@@ -79,7 +110,7 @@ function bindPad(id,kind,stick){
  c.addEventListener('pointerup',finish);c.addEventListener('pointercancel',finish);c.addEventListener('lostpointercapture',()=>{activePointer=null});
  c.addEventListener('contextmenu',e=>e.preventDefault());
 }
-function drawSettings(){for(let s=0;s<2;s++){drawPad(s?'sensR':'sensL',sensPoint(s),'sens');drawPad(s?'offR':'offL',offPoint(s),'offset');let i=s*4,j=s*2;$('sensTxt'+(s?'R':'L')).textContent=`Kiri ${state.sens[i]}% · Kanan ${state.sens[i+1]}% · Atas ${state.sens[i+2]}% · Bawah ${state.sens[i+3]}% (power: ${Math.round(10000/state.sens[i]) / 100}× / ${Math.round(10000/state.sens[i+1]) / 100}× / ${Math.round(10000/state.sens[i+2]) / 100}× / ${Math.round(10000/state.sens[i+3]) / 100}×)`;$('offTxt'+(s?'R':'L')).textContent=`Offset X: ${state.offset[j]} · Y: ${state.offset[j+1]}`;$('sv'+(s?'R':'L')).textContent='Power 0,5×–2×';$('ov'+(s?'R':'L')).textContent='±4500'}}
+function drawSettings(){for(let s=0;s<2;s++){const power=Math.round(10000/(state.sens[s*4]||100));$('power'+(s?'R':'L')).value=power;$('powerOut'+(s?'R':'L')).textContent=power+'%';drawPad(s?'sensR':'sensL',sensPoint(s),'sens');drawPad(s?'offR':'offL',offPoint(s),'offset');let i=s*4,j=s*2;$('sensTxt'+(s?'R':'L')).textContent=`Kiri ${state.sens[i]}% · Kanan ${state.sens[i+1]}% · Atas ${state.sens[i+2]}% · Bawah ${state.sens[i+3]}% (power: ${Math.round(10000/state.sens[i]) / 100}× / ${Math.round(10000/state.sens[i+1]) / 100}× / ${Math.round(10000/state.sens[i+2]) / 100}× / ${Math.round(10000/state.sens[i+3]) / 100}×)`;$('offTxt'+(s?'R':'L')).textContent=`Offset X: ${state.offset[j]} · Y: ${state.offset[j+1]}`;$('sv'+(s?'R':'L')).textContent='Power 0,5×–2×';$('ov'+(s?'R':'L')).textContent='±4500'}}
 function drawMonitor(id,xv,yv){drawPad(id,{x:Math.max(-1,Math.min(1,xv/32767)),y:Math.max(-1,Math.min(1,yv/32767))},'monitor')}
 let refreshing=false,monitorTarget=[0,0,0,0],monitorCurrent=[0,0,0,0];
 function animateMonitor(){
@@ -94,6 +125,21 @@ function animateMonitor(){
  requestAnimationFrame(animateMonitor);
 }
 async function refresh(){if(refreshing)return;refreshing=true;try{let r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){$('st').textContent='TOKEN?';return}let d=await r.json();$('st').textContent=d.connected?'TERSAMBUNG':'TERLEPAS';$('nm').textContent=d.name+(d.connected&&!d.grabbed?' · PERINGATAN: input belum berhasil dikunci dari browser':'');$('cal').textContent=d.calibrated?'SELESAI':'LEPAS STIK…';$('lk').textContent=d.last_key||'—';monitorTarget=d.fixed.slice();$('lv').textContent=d.fixed[0]+' , '+d.fixed[1];$('rv').textContent=d.fixed[2]+' , '+d.fixed[3];$('lm').textContent=`Raw X/Y: ${d.raw[0]} / ${d.raw[1]} · Pusat: ${d.center[0]} / ${d.center[1]} · DZ: ${d.deadzone[0]} / ${d.deadzone[1]}`;$('rm').textContent=`Raw X/Y: ${d.raw[2]} / ${d.raw[3]} · Pusat: ${d.center[2]} / ${d.center[3]} · DZ: ${d.deadzone[2]} / ${d.deadzone[3]}`;$('ax').textContent='Offset aktif: '+d.offset.join(' / ');renderButtonCheck(d);if(!built){built=true;let saved=readAutoConfig();state.sens=saved?saved.sens:d.sens;state.offset=saved?saved.offset:(d.offset||[0,0,0,0]);state.margin=saved?saved.margin:d.margin;state.min_dz=saved?saved.min_dz:d.min_dz;state.kp=saved?saved.kp:d.kp;$('margin').value=d.margin;$('minz').value=d.min_dz;$('kp').value=d.kp;[['margin','mo'],['minz','zo'],['kp','ko']].forEach(([a,b])=>{$(b).textContent=$(a).value;$(a).oninput=()=>$(b).textContent=$(a).value});drawSettings();if(saved)await applyAutoConfig(saved)}}catch(e){$('st').textContent='OFFLINE'}finally{refreshing=false}}
+let powerTimers=[null,null];
+function changePower(stick,value){
+ const power=Math.max(50,Math.min(200,Math.round(Number(value)||100)));
+ const base=stick*4,factor=Math.max(50,Math.min(200,Math.round(10000/power)));
+ for(let i=0;i<4;i++)state.sens[base+i]=factor;
+ $('powerOut'+(stick?'R':'L')).textContent=power+'%';
+ if(powerTimers[stick]!==null)clearTimeout(powerTimers[stick]);
+ saveAutoConfig();
+ powerTimers[stick]=setTimeout(async()=>{
+  powerTimers[stick]=null;
+  const key=stick===0?'sensL':'sensR';
+  const ok=await post('/api/config',{[key]:state.sens.slice(base,base+4)});
+  if(ok)$('powerMsg').textContent='Power analog '+(stick===0?'kiri':'kanan')+' diterapkan ✓';
+ },120);
+}
 async function applySens(stick){
  const key=stick===0?'sensL':'sensR',base=stick*4;
  const ok=await post('/api/config',{[key]:state.sens.slice(base,base+4)});
