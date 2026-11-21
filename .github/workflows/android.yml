@@ -2,7 +2,7 @@ name: Build Padfix Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, "build/stable-with-capture-and-analog"]
   workflow_dispatch:
 
 permissions:
