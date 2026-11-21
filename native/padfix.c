@@ -48,7 +48,7 @@ static int ufd = -1;
 static pthread_mutex_t um = PTHREAD_MUTEX_INITIALIZER;
 static char token[17];
 static const char *www = "/data/local/tmp/padfix_index.html";
-static const char *match = "Pro Controller";
+static const char *match = "";
 static const int AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
 static unsigned char pressed_key[KEY_MAX + 1];
 
@@ -125,12 +125,20 @@ static int find_pad(char *out, size_t n) {
     for (int i = 0; i < 64; i++) {
         char p[64], name[256] = {0};
         snprintf(p, sizeof p, "/dev/input/event%d", i);
-        int fd = open(p, O_RDONLY);
+        int fd = open(p, O_RDONLY | O_NONBLOCK);
         if (fd < 0) continue;
-        int ok = ioctl(fd, EVIOCGNAME(sizeof name), name) > 0 && strstr(name, match) &&
-                 !strstr(name, "IMU") && !strstr(name, "(padfix)");   // jangan ambil device virtual sendiri
+        unsigned long keys[NB(KEY_MAX+1)], axes[NB(ABS_MAX+1)];
+        memset(keys,0,sizeof keys); memset(axes,0,sizeof axes);
+        int named=ioctl(fd,EVIOCGNAME(sizeof name),name)>0;
+        ioctl(fd,EVIOCGBIT(EV_KEY,sizeof keys),keys);
+        ioctl(fd,EVIOCGBIT(EV_ABS,sizeof axes),axes);
+        int is_gamepad=tbit(ABS_X,axes)&&tbit(ABS_Y,axes) &&
+            (tbit(BTN_GAMEPAD,keys)||tbit(BTN_JOYSTICK,keys)||tbit(BTN_A,keys)||
+             tbit(BTN_SOUTH,keys)||tbit(BTN_TRIGGER,keys));
+        int ok=named&&is_gamepad&&(!match[0]||strstr(name,match))&&
+            !strstr(name,"IMU")&&!strstr(name,"PadFix Virtual Gamepad")&&!strstr(name,"(padfix)");
         close(fd);
-        if (ok) { snprintf(out, n, "%s", p); return 0; }
+        if(ok){snprintf(out,n,"%s",p);return 0;}
     }
     return -1;
 }
@@ -317,7 +325,15 @@ static int session(const char *fixed, int cal_ms, int *announced) {
         size_t out_count=0;
         for(size_t k=0;k<(size_t)n/sizeof ev[0];k++){
             struct input_event e=ev[k];
-            if(e.type==EV_ABS){
+            if(e.type==EV_ABS && (e.code==ABS_HAT0X||e.code==ABS_HAT0Y)){
+                if(calibrating)continue;
+                int neg=e.code==ABS_HAT0X?BTN_DPAD_LEFT:BTN_DPAD_UP;
+                int pos=e.code==ABS_HAT0X?BTN_DPAD_RIGHT:BTN_DPAD_DOWN;
+                struct input_event ke;memset(&ke,0,sizeof ke);ke.type=EV_KEY;ke.code=neg;ke.value=e.value<0;
+                if(out_count<128){out_ev[out_count++]=ke;pressed_key[neg]=(ke.value!=0);}
+                ke.code=pos;ke.value=e.value>0;
+                if(out_count<128){out_ev[out_count++]=ke;pressed_key[pos]=(ke.value!=0);}
+            }else if(e.type==EV_ABS){
                 int i=idx_of(e.code);
                 if(i>=0){
                     live_raw[i]=e.value;
@@ -470,7 +486,7 @@ static void send_status(int c) {
       cfg_offset[0], cfg_offset[1], cfg_offset[2], cfg_offset[3], live_raw[0], live_raw[1], live_raw[2], live_raw[3], live_fixed[0], live_fixed[1], live_fixed[2], live_fixed[3],
       live_center[0], live_center[1], live_center[2], live_center[3], live_dz[0], live_dz[1], live_dz[2], live_dz[3]);
     int first = 1;
-    for (int k = 1; k <= KEY_MAX; k++) if (have_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
+    for (int k = 1; k <= KEY_MAX; k++) if (virtual_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
     A("],\"pressed\":["); first = 1;
     for (int k = 1; k <= KEY_MAX; k++) if (pressed_key[k]) { A("%s%d", first ? "" : ",", k); first = 0; }
     A("]}");
@@ -586,6 +602,15 @@ int main(int argc, char **argv) {
         int r = session(fixed, cal_ms, &announced);
         if (r < 0) { running = 0; break; }
         if (r == 1 && running) sleep(1);
+    }
+    if (virtual_active) {
+        release_virtual_inputs();
+        pthread_mutex_lock(&um);
+        int vu=ufd; ufd=-1;
+        pthread_mutex_unlock(&um);
+        if(vu>=0){ioctl(vu,UI_DEV_DESTROY);close(vu);}
+        virtual_active=0;
+        printf("[VIRTUAL] virtual gamepad dihancurkan hanya karena Padfix dihentikan.\\n");
     }
     pthread_join(th, NULL);
     printf("Berhenti.\n");
