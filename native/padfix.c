@@ -187,8 +187,11 @@ static int create_virtual_device(void) {
     }
     memset(virtual_key, 0, sizeof virtual_key);
     memset(virtual_abs, 0, sizeof virtual_abs);
-    /* Sediakan tombol gamepad umum sebelum controller fisik tersambung. */
-    for (int k = BTN_MISC; k <= KEY_MAX; k++) {
+    /* Sediakan seluruh keycode Linux sebelum controller fisik tersambung.
+       Sebagian controller mengekspos tombol tambahan sebagai KEY_* (< BTN_MISC),
+       jadi jangan membatasi kapabilitas hanya ke BTN_* agar tombol dan kombinasi
+       tidak hilang saat diteruskan ke virtual gamepad. */
+    for (int k = 0; k <= KEY_MAX; k++) {
         if (ioctl(u, UI_SET_KEYBIT, k) == 0) virtual_key[k] = 1;
     }
     const int keys[] = {BTN_A, BTN_B, BTN_X, BTN_Y, BTN_TL, BTN_TR,
@@ -469,14 +472,20 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                     continue;
                 }
                 if(e.code==KEY_RECORD||e.code==KEY_SYSRQ||e.code==KEY_CAMERA||e.code==BTN_TRIGGER_HAPPY1||e.code==BTN_TRIGGER_HAPPY2){capture_button_event(e.value);continue;}
-                if(e.code<=KEY_MAX&&virtual_key[e.code]){
+                if(e.code<=KEY_MAX){
                     int out_code=e.code;
-                    /* Compensate Android's standard mapping for Nintendo X/Y layout. */
+                    /* Compensate Android's standard mapping for Nintendo X/Y layout.
+                       All other keys (including LB/RB/LT/RT) remain independent and
+                       are forwarded without collapsing simultaneous presses. */
                     if(out_code==BTN_NORTH)out_code=BTN_WEST;
                     else if(out_code==BTN_WEST)out_code=BTN_NORTH;
-                    pressed_key[out_code]=(e.value!=0);
-                    e.code=out_code;
-                    if(out_count<128)out_ev[out_count++]=e;
+                    if(virtual_key[out_code]){
+                        pressed_key[out_code]=(e.value!=0);
+                        e.code=out_code;
+                        if(out_count<128)out_ev[out_count++]=e;
+                    } else {
+                        fprintf(stderr,"[INPUT] keycode %d tidak tersedia pada virtual device; event dilewati.\n",out_code);
+                    }
                 }
             }else if(e.type==EV_SYN){
                 if(!calibrating&&out_count<128)out_ev[out_count++]=e;
