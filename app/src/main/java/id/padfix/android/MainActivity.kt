@@ -32,6 +32,7 @@ class MainActivity : Activity() {
     @Volatile private var dashboardLoaded = false
     @Volatile private var notificationPollActive = false
     @Volatile private var lastCalibrationStatus = ""
+    @Volatile private var lastNotificationKey = ""
     @Volatile private var notificationGeneration = 0
     private val notifierHandler = Handler(Looper.getMainLooper())
 
@@ -170,6 +171,7 @@ class MainActivity : Activity() {
         notifierHandler.removeCallbacksAndMessages(null)
         notificationPollActive = true
         lastCalibrationStatus = ""
+        lastNotificationKey = ""
         showPersistentGamepadNotification("VIRTUAL GAMEPAD AKTIF", "Menunggu controller fisik • R3 keep-alive setiap 10 detik.")
         pollBackendState(token, notificationGeneration)
     }
@@ -219,6 +221,9 @@ class MainActivity : Activity() {
     }
 
     private fun showPersistentGamepadNotification(title: String, message: String) {
+        val key = "$title|$message"
+        if (lastNotificationKey == key) return
+        lastNotificationKey = key
         val builder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
             Notification.Builder(this, NOTIFICATION_CHANNEL) else Notification.Builder(this)
         builder.setSmallIcon(android.R.drawable.ic_media_play)
@@ -240,6 +245,7 @@ class MainActivity : Activity() {
         catch (e: Exception) { setStatus("Gagal mengirim perintah Stop: ${e.message}"); return }
         notificationPollActive = false
         notificationGeneration++
+        lastNotificationKey = ""
         notifierHandler.removeCallbacksAndMessages(null)
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         web.loadUrl("about:blank")
