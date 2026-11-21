@@ -212,8 +212,9 @@ class MainActivity : Activity() {
     }
 
     private fun showCalibrationNotification(complete: Boolean) {
-        val builder = Notification.Builder(this, NOTIFICATION_CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+        val builder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+            Notification.Builder(this, NOTIFICATION_CHANNEL) else Notification.Builder(this)
+        builder.setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(if (complete) "KALIBRASI SELESAI" else "GAMEPAD TERHUBUNG")
             .setContentText(
                 if (complete) "Gamepad siap digunakan. Selamat bermain."
@@ -223,7 +224,8 @@ class MainActivity : Activity() {
             .setOnlyAlertOnce(true)
             .setAutoCancel(complete)
         if (complete) {
-            builder.setTimeoutAfter(2800)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) builder.setTimeoutAfter(2800)
+            else notifierHandler.postDelayed({ getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) }, 2800)
         } else {
             builder.setOngoing(true)
         }
