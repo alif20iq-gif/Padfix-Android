@@ -223,7 +223,7 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     while (running) {
         if (want_recal && !calibrating) {   // diminta dari dashboard
             want_recal = 0; calibrating = 1; live_cal = 0; cal_end = now_ms() + cal_ms;
-            for (int i = 0; i < 4; i++) { struct input_absinfo ai; ioctl(fd, EVIOCGABS(SRC_AX[i]), &ai); mn[i] = mx[i] = ai.value; }
+            for (int i = 0; i < 4; i++) { struct input_absinfo ai; ioctl(fd, EVIOCGABS(AX[i]), &ai); mn[i] = mx[i] = ai.value; }
         }
         if (calibrating && now_ms() >= cal_end) {
             for (int i = 0; i < 4; i++) {
