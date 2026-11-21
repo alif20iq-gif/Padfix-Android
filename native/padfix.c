@@ -230,7 +230,6 @@ static int session(const char *fixed, int cal_ms, int *announced) {
     snprintf(ud.name, UINPUT_MAX_NAME_SIZE, "%.60s (padfix)", rname);
     ud.id = id;
     int lo[4] = {0}, hi[4] = {0}, half[4] = {0}, oc[4] = {0};
-    int axis_offset[4] = {0};
     for (int a = 0; a <= ABS_MAX; a++) {
         if (!tbit(a, absbits)) continue;
         struct input_absinfo ai;
