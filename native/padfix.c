@@ -19,6 +19,7 @@
 #include <time.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
 #include <sys/socket.h>
@@ -29,6 +30,7 @@
 #define NB(x) ((((x) - 1) / BPL) + 1)
 #define PORT 8765
 #define SHOT "/data/local/tmp/padfix_shot.png"
+#define RECORD_DIR "/sdcard/Movies/Padfix"
 
 static volatile sig_atomic_t running = 1;
 static volatile int cfg_margin = 600, cfg_min_dz = 1500, cfg_kp = 0;
@@ -51,6 +53,12 @@ static const char *www = "/data/local/tmp/padfix_index.html";
 static const char *match = "";
 static const int AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
 static unsigned char pressed_key[KEY_MAX + 1];
+static volatile int stick_offset[4];
+static volatile int recording=0;
+static pid_t recorder_pid=-1;
+static char recording_path[256]="";
+static int capture_down=0,capture_long_fired=0;
+static int64_t capture_press_ms=0,capture_last_tap_ms=0;
 
 static const char *config_path = "/data/local/tmp/padfix.conf";
 static void save_config(void) {
@@ -192,7 +200,7 @@ static int create_virtual_device(void) {
     for (size_t i=0; i<sizeof sticks/sizeof sticks[0]; i++) {
         int a=sticks[i];
         if (ioctl(u, UI_SET_ABSBIT, a) < 0) { perror("uinput stick axis"); close(u); return -1; }
-        virtual_abs[a]=1; ud.absmin[a]=-32768; ud.absmax[a]=32767;
+        virtual_abs[a]=1; ud.absmin[a]=-24000; ud.absmax[a]=24000;
         ud.absfuzz[a]=0; ud.absflat[a]=0;
     }
     const int triggers[] = {ABS_Z, ABS_RZ, ABS_GAS, ABS_BRAKE, ABS_THROTTLE, ABS_RUDDER};
@@ -230,7 +238,7 @@ static void release_virtual_inputs(void) {
     const int axes[]={ABS_X,ABS_Y,ABS_RX,ABS_RY};
     for(size_t i=0;i<4;i++){
         memset(&out[n],0,sizeof out[n]); out[n].type=EV_ABS; out[n].code=axes[i]; out[n].value=0; n++;
-        live_fixed[i]=0;
+        live_fixed[i]=0; stick_offset[i]=0;
     }
     memset(&out[n],0,sizeof out[n]); out[n].type=EV_SYN; out[n].code=SYN_REPORT; n++;
     emit_batch(out,n);
@@ -249,6 +257,7 @@ static void *r3_keepalive_main(void *unused) {
     (void)unused;
     int64_t next_pulse=now_ms()+10000;
     while(running){
+        capture_button_tick();
         if(live_conn || !virtual_active){
             next_pulse=now_ms()+10000;
             struct timespec pause={0,200000000};
@@ -371,6 +380,8 @@ static int session(const char *fixed, int cal_ms, int *announced) {
             struct input_event e=ev[k];
             if(e.type==EV_ABS && (e.code==ABS_HAT0X||e.code==ABS_HAT0Y)){
                 if(calibrating)continue;
+                /* Forward both HAT axes and DPAD keys for broad game compatibility. */
+                if(out_count<128)out_ev[out_count++]=e;
                 int neg=e.code==ABS_HAT0X?BTN_DPAD_LEFT:BTN_DPAD_UP;
                 int pos=e.code==ABS_HAT0X?BTN_DPAD_RIGHT:BTN_DPAD_DOWN;
                 struct input_event ke;memset(&ke,0,sizeof ke);ke.type=EV_KEY;ke.code=neg;ke.value=e.value<0;
@@ -393,8 +404,8 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                     int pct=sens[i*2+(off<0?0:1)];
                     long so=(long)off*100/(pct>0?pct:100);
                     if(so>half[i])so=half[i];if(so< -half[i])so=-half[i];
-                    int ox=(i==0||i==2)?(int)so:live_fixed[i-1];
-                    int oy=(i==1||i==3)?(int)so:live_fixed[i+1];
+                    int ox=(i==0||i==2)?(int)so:stick_offset[i-1];
+                    int oy=(i==1||i==3)?(int)so:stick_offset[i+1];
                     int ax=ox<0?-ox:ox,ay=oy<0?-oy:oy,dir;
                     if(ax*2<ay)dir=oy<0?0:1;else if(ay*2<ax)dir=ox<0?2:3;
                     else if(ox>=0&&oy<0)dir=4;else if(ox<0&&oy<0)dir=5;
@@ -403,8 +414,9 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                     int power=dir_min[di]+(int)((long)(dir_max[di]-dir_min[di])*radius/(half[i]>0?half[i]:1));
                     so=so*power/100;if(so>half[i])so=half[i];if(so< -half[i])so= -half[i];
                     int fixed_value=oc[i]+(int)so;
-                    live_fixed[i]=fixed_value-oc[i];live_dz[i]=dz;
-                    int vout=scale_to_virtual(fixed_value,lo[i],hi[i],-32768,32767);
+                    stick_offset[i]=(int)so;live_dz[i]=dz;
+                    int vout=scale_to_virtual(fixed_value,lo[i],hi[i],-24000,24000);
+                    live_fixed[i]=vout;
                     if(vout==last[i])continue;
                     last[i]=vout;e.value=vout;
                 } else {
@@ -422,9 +434,16 @@ static int session(const char *fixed, int cal_ms, int *announced) {
             }else if(e.type==EV_KEY){
                 if(calibrating)continue;
                 last_key=e.code;
+                /* BTN_Z (309) is the Capture key on this controller. */
+                if(e.code==BTN_Z){capture_button_event(e.value);continue;}
                 if(e.code<=KEY_MAX&&virtual_key[e.code]){
-                    pressed_key[e.code]=(e.value!=0);
-                    out_ev[out_count++]=e;
+                    int out_code=e.code;
+                    /* Compensate Android's standard mapping for Nintendo X/Y layout. */
+                    if(out_code==BTN_NORTH)out_code=BTN_WEST;
+                    else if(out_code==BTN_WEST)out_code=BTN_NORTH;
+                    pressed_key[out_code]=(e.value!=0);
+                    e.code=out_code;
+                    if(out_count<128)out_ev[out_count++]=e;
                 }
             }else if(e.type==EV_SYN){
                 if(!calibrating&&out_count<128)out_ev[out_count++]=e;
@@ -511,6 +530,36 @@ static int take_shot(void) {
         usleep(50000);
     }
     kill(pid, SIGKILL); waitpid(pid, NULL, 0); return -1;
+}
+static int toggle_screen_recording(void) {
+    if(recording && recorder_pid>0) {
+        kill(recorder_pid,SIGINT);
+        int exited=0;
+        for(int i=0;i<40;i++){int st;pid_t w=waitpid(recorder_pid,&st,WNOHANG);if(w==recorder_pid||(w<0&&errno==ECHILD)){exited=1;break;}usleep(100000);}
+        if(!exited){kill(recorder_pid,SIGKILL);waitpid(recorder_pid,NULL,0);}
+        recorder_pid=-1;recording=0;
+        printf("[CAPTURE] SCREEN_RECORD_STOPPED: %s\n",recording_path);return 0;
+    }
+    mkdir("/sdcard/Movies",0775);mkdir(RECORD_DIR,0775);
+    time_t now=time(NULL);struct tm tmv;localtime_r(&now,&tmv);
+    char stamp[40];strftime(stamp,sizeof stamp,"%Y%m%d-%H%M%S",&tmv);
+    snprintf(recording_path,sizeof recording_path,RECORD_DIR "/Padfix-%s.mp4",stamp);
+    pid_t pid=fork();if(pid<0)return -1;
+    if(pid==0){int nl=open("/dev/null",O_RDWR);if(nl>=0){dup2(nl,1);dup2(nl,2);if(nl>2)close(nl);}
+        execl("/system/bin/screenrecord","screenrecord",recording_path,(char *)NULL);_exit(127);}
+    recorder_pid=pid;recording=1;printf("[CAPTURE] SCREEN_RECORD_STARTED: %s\n",recording_path);return 0;
+}
+static void capture_button_event(int value) {
+    int64_t now=now_ms();
+    if(value && !capture_down){capture_down=1;capture_press_ms=now;capture_long_fired=0;
+        if(capture_last_tap_ms>0&&now-capture_last_tap_ms<=380){capture_last_tap_ms=0;capture_long_fired=1;
+            if(take_shot()==0)printf("[CAPTURE] SCREENSHOT_SAVED: %s\n",SHOT);else fprintf(stderr,"[CAPTURE] screenshot gagal.\n");
+        }else capture_last_tap_ms=now;
+    }else if(!value&&capture_down){capture_down=0;if(capture_long_fired)capture_last_tap_ms=0;}
+}
+static void capture_button_tick(void) {
+    if(capture_down&&!capture_long_fired&&now_ms()-capture_press_ms>=2500){capture_long_fired=1;capture_last_tap_ms=0;
+        if(toggle_screen_recording()<0)fprintf(stderr,"[CAPTURE] gagal mengendalikan screenrecord.\n");}
 }
 static char *slurp(const char *path, size_t *len, size_t max) {
     FILE *f = fopen(path, "rb"); if (!f) return NULL;
