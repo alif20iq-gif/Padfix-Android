@@ -40,6 +40,8 @@ static volatile int dir_min[16] = {100,100,100,100,100,100,100,100,100,100,100,1
 static volatile int dir_max[16] = {100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100};
 static volatile int live_raw[4], live_fixed[4], live_center[4], live_dz[4];
 static volatile int live_cal = 0, live_conn = 0, live_grab = 0, want_recal = 0, last_key = 0;
+static volatile int virtual_active = 0, live_state = 0; /* 0 waiting, 1 connected, 2 calibrating, 3 complete, 4 disconnected */
+static unsigned char virtual_key[KEY_MAX + 1], virtual_abs[ABS_MAX + 1];
 static unsigned char have_key[KEY_MAX + 1];
 static char dev_name[128] = "";
 static int ufd = -1;
@@ -145,163 +147,238 @@ static int fix(int v, int c, int dz, int lo, int hi, int half, int kp) {
     return d > 0 ? (int)o : (int)-o;
 }
 
-// ---------------- kalibrasi yang bertahan antar reconnect ----------------
+// ---------------- virtual device persisten + sesi sumber fisik ----------------
 static int have_cal = 0, cen[4], noise[4];
 
-// Satu sesi = satu koneksi gamepad. return 1: coba lagi, 0: selesai, -1: fatal.
-static int session(const char *fixed, int cal_ms, int *announced) {
-    char path[64] = {0};
-    if (fixed[0]) snprintf(path, sizeof path, "%s", fixed);
-    else if (find_pad(path, sizeof path) < 0) {
-        if (!*announced) { printf("Menunggu gamepad...\n"); *announced = 1; }
-        return 1;
-    }
-    int fd = open(path, O_RDONLY | O_NONBLOCK);
-    if (fd < 0) return 1;
-    unsigned long keybits[NB(KEY_MAX + 1)], absbits[NB(ABS_MAX + 1)];
-    memset(keybits, 0, sizeof keybits); memset(absbits, 0, sizeof absbits);
-    ioctl(fd, EVIOCGBIT(EV_KEY, sizeof keybits), keybits);
-    ioctl(fd, EVIOCGBIT(EV_ABS, sizeof absbits), absbits);
-    struct input_id id; ioctl(fd, EVIOCGID, &id);
-    char rname[128] = {0}; ioctl(fd, EVIOCGNAME(sizeof rname), rname);
-
+static int create_virtual_device(void) {
     int u = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-    if (u < 0) { perror("open /dev/uinput (butuh user shell/root)"); close(fd); return -1; }
-    ioctl(u, UI_SET_EVBIT, EV_KEY); ioctl(u, UI_SET_EVBIT, EV_ABS); ioctl(u, UI_SET_EVBIT, EV_SYN);
-    memset(have_key, 0, sizeof have_key); memset(pressed_key, 0, sizeof pressed_key);
-    for (int k = 0; k <= KEY_MAX; k++) if (tbit(k, keybits)) { ioctl(u, UI_SET_KEYBIT, k); have_key[k] = 1; }
-    // Beberapa game Android hanya mengenali D-pad sebagai EV_KEY, bukan ABS_HAT.
-    const int dpad_keys[] = {BTN_DPAD_UP, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT};
-    for (size_t q = 0; q < sizeof dpad_keys / sizeof dpad_keys[0]; q++) {
-        ioctl(u, UI_SET_KEYBIT, dpad_keys[q]);
-        have_key[dpad_keys[q]] = 1;
+    if (u < 0) { perror("open /dev/uinput"); return -1; }
+    if (ioctl(u, UI_SET_EVBIT, EV_KEY) < 0 ||
+        ioctl(u, UI_SET_EVBIT, EV_ABS) < 0 ||
+        ioctl(u, UI_SET_EVBIT, EV_SYN) < 0) {
+        perror("uinput event capabilities"); close(u); return -1;
+    }
+    memset(virtual_key, 0, sizeof virtual_key);
+    memset(virtual_abs, 0, sizeof virtual_abs);
+    /* Sediakan tombol gamepad umum sebelum controller fisik tersambung. */
+    for (int k = BTN_MISC; k <= KEY_MAX; k++) {
+        if (ioctl(u, UI_SET_KEYBIT, k) == 0) virtual_key[k] = 1;
+    }
+    const int keys[] = {BTN_A, BTN_B, BTN_X, BTN_Y, BTN_TL, BTN_TR,
+        BTN_TL2, BTN_TR2, BTN_SELECT, BTN_START, BTN_MODE,
+        BTN_THUMBL, BTN_THUMBR, BTN_DPAD_UP, BTN_DPAD_DOWN,
+        BTN_DPAD_LEFT, BTN_DPAD_RIGHT};
+    for (size_t i=0; i<sizeof keys/sizeof keys[0]; i++) {
+        if (ioctl(u, UI_SET_KEYBIT, keys[i]) == 0) virtual_key[keys[i]] = 1;
     }
 
-    struct uinput_user_dev ud; memset(&ud, 0, sizeof ud);
-    snprintf(ud.name, UINPUT_MAX_NAME_SIZE, "%.60s (padfix)", rname);
-    ud.id = id;
-    int lo[4] = {0}, hi[4] = {0}, half[4] = {0}, oc[4] = {0};
-    for (int a = 0; a <= ABS_MAX; a++) {
-        if (!tbit(a, absbits)) continue;
-        struct input_absinfo ai;
-        if (ioctl(fd, EVIOCGABS(a), &ai) < 0) continue;
-        ioctl(u, UI_SET_ABSBIT, a);
-        ud.absmin[a] = ai.minimum; ud.absmax[a] = ai.maximum;
-        int i = idx_of(a);
-        if (i >= 0) { lo[i] = ai.minimum; hi[i] = ai.maximum; half[i] = (hi[i] - lo[i]) / 2; oc[i] = (hi[i] + lo[i]) / 2; }
-        else { ud.absfuzz[a] = ai.fuzz; ud.absflat[a] = ai.flat; }
+    struct uinput_user_dev ud;
+    memset(&ud, 0, sizeof ud);
+    snprintf(ud.name, UINPUT_MAX_NAME_SIZE, "PadFix Virtual Gamepad");
+    ud.id.bustype = BUS_USB;
+    ud.id.vendor = 0x1209;  /* PID/VID tetap: tidak berubah saat reconnect */
+    ud.id.product = 0x5046;
+    ud.id.version = 1;
+
+    const int sticks[] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
+    for (size_t i=0; i<sizeof sticks/sizeof sticks[0]; i++) {
+        int a=sticks[i];
+        if (ioctl(u, UI_SET_ABSBIT, a) < 0) { perror("uinput stick axis"); close(u); return -1; }
+        virtual_abs[a]=1; ud.absmin[a]=-32768; ud.absmax[a]=32767;
+        ud.absfuzz[a]=0; ud.absflat[a]=0;
+    }
+    const int triggers[] = {ABS_Z, ABS_RZ, ABS_GAS, ABS_BRAKE, ABS_THROTTLE, ABS_RUDDER};
+    for (size_t i=0; i<sizeof triggers/sizeof triggers[0]; i++) {
+        int a=triggers[i];
+        if (ioctl(u, UI_SET_ABSBIT, a)==0) {
+            virtual_abs[a]=1; ud.absmin[a]=0; ud.absmax[a]=255;
+        }
+    }
+    const int hats[] = {ABS_HAT0X, ABS_HAT0Y, ABS_HAT1X, ABS_HAT1Y};
+    for (size_t i=0; i<sizeof hats/sizeof hats[0]; i++) {
+        int a=hats[i];
+        if (ioctl(u, UI_SET_ABSBIT, a)==0) {
+            virtual_abs[a]=1; ud.absmin[a]=-1; ud.absmax[a]=1;
+        }
     }
     if (write(u, &ud, sizeof ud) != (ssize_t)sizeof ud || ioctl(u, UI_DEV_CREATE) < 0) {
-        perror("uinput create"); close(u); close(fd); return -1;
+        perror("uinput create persistent virtual gamepad"); close(u); return -1;
     }
-    live_grab = (ioctl(fd, EVIOCGRAB, 1) == 0);
-    if (!live_grab) perror("EVIOCGRAB (input fisik mungkin masih masuk ke browser)");
-    pthread_mutex_lock(&um); ufd = u; pthread_mutex_unlock(&um);
-    snprintf(dev_name, sizeof dev_name, "%s", rname);
-    for (char *p = dev_name; *p; p++) if (*p == '"' || *p == '\\') *p = '_';
-    live_conn = 1; *announced = 0;
-    printf("Gamepad tersambung: %s (%s)\n", rname, path); fflush(stdout);
+    pthread_mutex_lock(&um);
+    ufd=u;
+    pthread_mutex_unlock(&um);
+    virtual_active=1;
+    printf("[VIRTUAL] VIRTUAL_DEVICE_ACTIVE: PadFix Virtual Gamepad dibuat sekali (VID:PID 1209:5046).\n");
+    fflush(stdout);
+    return 0;
+}
 
-    int calibrating = !have_cal || want_recal, mn[4], mx[4], last[4];
-    int64_t cal_end = 0;
-    if (calibrating) {
-        want_recal = 0; live_cal = 0; cal_end = now_ms() + cal_ms;
-        for (int i = 0; i < 4; i++) { struct input_absinfo ai; ioctl(fd, EVIOCGABS(AX[i]), &ai); mn[i] = mx[i] = ai.value; }
-        printf("Kalibrasi %d ms: LEPAS kedua stik...\n", cal_ms); fflush(stdout);
-    } else live_cal = 1;
-    for (int i = 0; i < 4; i++) last[i] = oc[i];
+static void release_virtual_inputs(void) {
+    struct input_event out[KEY_MAX + 8]; size_t n=0;
+    for (int k=0;k<=KEY_MAX;k++) if (pressed_key[k]) {
+        memset(&out[n],0,sizeof out[n]); out[n].type=EV_KEY; out[n].code=k; out[n].value=0; n++;
+        pressed_key[k]=0;
+    }
+    const int axes[]={ABS_X,ABS_Y,ABS_RX,ABS_RY};
+    for(size_t i=0;i<4;i++){
+        memset(&out[n],0,sizeof out[n]); out[n].type=EV_ABS; out[n].code=axes[i]; out[n].value=0; n++;
+        live_fixed[i]=0;
+    }
+    emit_batch(out,n);
+}
 
-    int ret = 1;
-    while (running) {
-        if (want_recal && !calibrating) {   // diminta dari dashboard
-            want_recal = 0; calibrating = 1; live_cal = 0; cal_end = now_ms() + cal_ms;
-            for (int i = 0; i < 4; i++) { struct input_absinfo ai; ioctl(fd, EVIOCGABS(AX[i]), &ai); mn[i] = mx[i] = ai.value; }
+static int scale_to_virtual(int value, int lo, int hi, int vmin, int vmax) {
+    if (hi <= lo) return vmin;
+    long scaled=(long)(value-lo)*(vmax-vmin)/(hi-lo)+vmin;
+    if(scaled<vmin)scaled=vmin;
+    if(scaled>vmax)scaled=vmax;
+    return (int)scaled;
+}
+
+/* Satu sesi hanya membuka/membaca sumber fisik. Virtual uinput tidak disentuh. */
+static int session(const char *fixed, int cal_ms, int *announced) {
+    char path[64]={0};
+    if(fixed[0]) snprintf(path,sizeof path,"%s",fixed);
+    else if(find_pad(path,sizeof path)<0) {
+        live_conn=0; live_grab=0; live_cal=0;
+        if(live_state!=0) live_state=4;
+        else live_state=0;
+        if(!*announced){printf("[PHYSICAL] WAITING_FOR_PHYSICAL_GAMEPAD: menunggu controller fisik.\n");*announced=1;}
+        return 1;
+    }
+    int fd=open(path,O_RDONLY|O_NONBLOCK);
+    if(fd<0)return 1;
+
+    unsigned long keybits[NB(KEY_MAX+1)],absbits[NB(ABS_MAX+1)];
+    memset(keybits,0,sizeof keybits);memset(absbits,0,sizeof absbits);
+    ioctl(fd,EVIOCGBIT(EV_KEY,sizeof keybits),keybits);
+    ioctl(fd,EVIOCGBIT(EV_ABS,sizeof absbits),absbits);
+    char rname[128]={0}; ioctl(fd,EVIOCGNAME(sizeof rname),rname);
+    int lo[4]={-32768,-32768,-32768,-32768};
+    int hi[4]={32767,32767,32767,32767};
+    int half[4]={32767,32767,32767,32767},oc[4]={0,0,0,0};
+    for(int i=0;i<4;i++){
+        struct input_absinfo ai;
+        if(ioctl(fd,EVIOCGABS(AX[i]),&ai)==0){
+            lo[i]=ai.minimum;hi[i]=ai.maximum;
+            if(hi[i]<=lo[i]){lo[i]=-32768;hi[i]=32767;}
+            half[i]=(hi[i]-lo[i])/2;oc[i]=(hi[i]+lo[i])/2;
         }
-        if (calibrating && now_ms() >= cal_end) {
-            for (int i = 0; i < 4; i++) {
-                cen[i] = (mn[i] + mx[i]) / 2; noise[i] = (mx[i] - mn[i]) / 2;
-                live_center[i] = cen[i];
-                printf("axis %d: min=%d max=%d -> center=%d noise=%d\n", AX[i], mn[i], mx[i], cen[i], noise[i]);
+    }
+    live_grab=(ioctl(fd,EVIOCGRAB,1)==0);
+    if(!live_grab)perror("EVIOCGRAB (input fisik mungkin masih masuk ke aplikasi lain)");
+    snprintf(dev_name,sizeof dev_name,"%s",rname);
+    for(char *p=dev_name;*p;p++)if(*p=='"'||*p=='\\')*p='_';
+    live_conn=1;live_state=2;live_cal=0;*announced=0;
+    printf("[PHYSICAL] PHYSICAL_GAMEPAD_CONNECTED: %s (%s). Virtual device tetap sama.\n",rname,path);
+    printf("[CALIBRATION] CALIBRATION_IN_PROGRESS: ambil sampel netral %d ms; abaikan input sampai selesai.\n",cal_ms);
+    fflush(stdout);
+
+    int mn[4],mx[4],last[4];
+    for(int i=0;i<4;i++){
+        struct input_absinfo ai;
+        if(ioctl(fd,EVIOCGABS(AX[i]),&ai)==0)mn[i]=mx[i]=ai.value;
+        else mn[i]=mx[i]=oc[i];
+        last[i]=0;
+    }
+    int calibrating=1;
+    int64_t cal_end=now_ms()+cal_ms;
+    int ret=1;
+    while(running){
+        if(want_recal&&!calibrating){
+            want_recal=0;calibrating=1;live_cal=0;live_state=2;cal_end=now_ms()+cal_ms;
+            for(int i=0;i<4;i++){
+                struct input_absinfo ai;
+                if(ioctl(fd,EVIOCGABS(AX[i]),&ai)==0)mn[i]=mx[i]=ai.value;
+                else mn[i]=mx[i]=oc[i];
             }
-            have_cal = 1; calibrating = 0; live_cal = 1; fflush(stdout);
+            printf("[CALIBRATION] CALIBRATION_IN_PROGRESS: kalibrasi ulang diminta.\n");
         }
-        struct pollfd p = {fd, POLLIN, 0};
-        int r = poll(&p, 1, calibrating ? 100 : 500);
-        if (r < 0 && errno != EINTR) break;
-        if (r <= 0) continue;
-        if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) break;
-        struct input_event ev[64], out_ev[64];
-        ssize_t n = read(fd, ev, sizeof ev);
-        if (n < 0) { if (errno == EAGAIN || errno == EINTR) continue; break; }   // ENODEV = dilepas
-        size_t out_count = 0;
-        for (size_t k = 0; k < (size_t)n / sizeof ev[0]; k++) {
-            struct input_event e = ev[k];
-            if (e.type == EV_ABS && (e.code == ABS_HAT0X || e.code == ABS_HAT0Y)) {
-                // Terjemahkan HAT menjadi tombol D-pad virtual. Nilai 0 melepas
-                // kedua arah pada sumbu tersebut; -1/+1 menekan arah yang sesuai.
-                int negative_key = (e.code == ABS_HAT0X) ? BTN_DPAD_LEFT : BTN_DPAD_UP;
-                int positive_key = (e.code == ABS_HAT0X) ? BTN_DPAD_RIGHT : BTN_DPAD_DOWN;
-                struct input_event k;
-                memset(&k, 0, sizeof k);
-                k.type = EV_KEY; k.code = negative_key; k.value = (e.value < 0) ? 1 : 0;
-                if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = k;
-                k.code = positive_key; k.value = (e.value > 0) ? 1 : 0;
-                if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = k;
-            } else if (e.type == EV_ABS) {
-                int i = idx_of(e.code);
-                if (i >= 0) {
-                    live_raw[i] = e.value;
-                    int out;
-                    if (calibrating) {
-                        if (e.value < mn[i]) mn[i] = e.value;
-                        if (e.value > mx[i]) mx[i] = e.value;
-                        out = oc[i];
-                    } else {
-                        int dz = noise[i] + cfg_margin; if (dz < cfg_min_dz) dz = cfg_min_dz;
-                        int center = cen[i] + cfg_offset[i];
-                        if (center < lo[i]) center = lo[i];
-                        if (center > hi[i]) center = hi[i];
-                        int off = fix(e.value, center, dz, lo[i], hi[i], half[i], cfg_kp);
-                        int pct = sens[i * 2 + (off < 0 ? 0 : 1)];
-                        /* Sensitivitas arah: nilai lebih kecil memperkuat power; 50%=2x, 100%=1x, 200%=0.5x. */
-                        long so = (long)off * 100 / (pct > 0 ? pct : 100);
-                        if (so > half[i]) so = half[i];
-                        if (so < -half[i]) so = -half[i];
-                        int ox=(i==0||i==2)?(int)so:live_fixed[i-1];
-                        int oy=(i==1||i==3)?(int)so:live_fixed[i+1];
-                        int ax=ox<0?-ox:ox, ay=oy<0?-oy:oy, dir;
-                        if(ax*2<ay) dir=oy<0?0:1; else if(ay*2<ax) dir=ox<0?2:3;
-                        else if(ox>=0&&oy<0) dir=4; else if(ox<0&&oy<0) dir=5;
-                        else if(ox>=0&&oy>=0) dir=6; else dir=7;
-                        int di=(i<2?0:8)+dir, radius=ax>ay?ax:ay; if(radius>half[i])radius=half[i];
-                        int power=dir_min[di]+(int)((long)(dir_max[di]-dir_min[di])*radius/(half[i]>0?half[i]:1));
-                        so=so*power/100; if(so>half[i])so=half[i]; if(so< -half[i])so= -half[i];
-                        out = oc[i] + (int)so;
-                        live_dz[i] = dz;
+        if(calibrating&&now_ms()>=cal_end){
+            for(int i=0;i<4;i++){
+                cen[i]=(mn[i]+mx[i])/2;noise[i]=(mx[i]-mn[i])/2;
+                live_center[i]=cen[i];
+                printf("[CALIBRATION] axis %d center=%d noise=%d\n",AX[i],cen[i],noise[i]);
+            }
+            have_cal=1;calibrating=0;live_cal=1;live_state=3;
+            printf("[CALIBRATION] CALIBRATION_COMPLETE: Gamepad siap digunakan.\n");
+            fflush(stdout);
+            /* Pastikan semua sumbu mulai dari netral; tidak ada input kalibrasi yang diteruskan. */
+            release_virtual_inputs();
+        }
+        struct pollfd p={fd,POLLIN,0};
+        int r=poll(&p,1,calibrating?40:500);
+        if(r<0&&errno!=EINTR)break;
+        if(r<=0)continue;
+        if(p.revents&(POLLERR|POLLHUP|POLLNVAL))break;
+        struct input_event ev[64],out_ev[128];
+        ssize_t n=read(fd,ev,sizeof ev);
+        if(n<0){if(errno==EAGAIN||errno==EINTR)continue;break;}
+        size_t out_count=0;
+        for(size_t k=0;k<(size_t)n/sizeof ev[0];k++){
+            struct input_event e=ev[k];
+            if(e.type==EV_ABS){
+                int i=idx_of(e.code);
+                if(i>=0){
+                    live_raw[i]=e.value;
+                    if(calibrating){
+                        if(e.value<mn[i])mn[i]=e.value;
+                        if(e.value>mx[i])mx[i]=e.value;
+                        continue; /* input analog dibuang selama kalibrasi */
                     }
-                    live_fixed[i] = out - oc[i];
-                    if (out == last[i]) continue;
-                    last[i] = out; e.value = out;
+                    int dz=noise[i]+cfg_margin;if(dz<cfg_min_dz)dz=cfg_min_dz;
+                    int center=cen[i]+cfg_offset[i];
+                    if(center<lo[i])center=lo[i];if(center>hi[i])center=hi[i];
+                    int off=fix(e.value,center,dz,lo[i],hi[i],half[i],cfg_kp);
+                    int pct=sens[i*2+(off<0?0:1)];
+                    long so=(long)off*100/(pct>0?pct:100);
+                    if(so>half[i])so=half[i];if(so< -half[i])so=-half[i];
+                    int ox=(i==0||i==2)?(int)so:live_fixed[i-1];
+                    int oy=(i==1||i==3)?(int)so:live_fixed[i+1];
+                    int ax=ox<0?-ox:ox,ay=oy<0?-oy:oy,dir;
+                    if(ax*2<ay)dir=oy<0?0:1;else if(ay*2<ax)dir=ox<0?2:3;
+                    else if(ox>=0&&oy<0)dir=4;else if(ox<0&&oy<0)dir=5;
+                    else if(ox>=0&&oy>=0)dir=6;else dir=7;
+                    int di=(i<2?0:8)+dir,radius=ax>ay?ax:ay;if(radius>half[i])radius=half[i];
+                    int power=dir_min[di]+(int)((long)(dir_max[di]-dir_min[di])*radius/(half[i]>0?half[i]:1));
+                    so=so*power/100;if(so>half[i])so=half[i];if(so< -half[i])so= -half[i];
+                    int fixed_value=oc[i]+(int)so;
+                    live_fixed[i]=fixed_value-oc[i];live_dz[i]=dz;
+                    int vout=scale_to_virtual(fixed_value,lo[i],hi[i],-32768,32767);
+                    if(vout==last[i])continue;
+                    last[i]=vout;e.value=vout;
+                } else {
+                    if(calibrating)continue;
+                    if(e.code>ABS_MAX||!virtual_abs[e.code])continue;
+                    struct input_absinfo ai;
+                    if(ioctl(fd,EVIOCGABS(e.code),&ai)==0&&ai.maximum>ai.minimum){
+                        int vmin=(e.code==ABS_HAT0X||e.code==ABS_HAT0Y||e.code==ABS_HAT1X||e.code==ABS_HAT1Y)?-1:
+                            ((e.code==ABS_Z||e.code==ABS_RZ||e.code==ABS_GAS||e.code==ABS_BRAKE||e.code==ABS_THROTTLE||e.code==ABS_RUDDER)?0:-32768);
+                        int vmax=vmin==-1?1:((vmin==0)?255:32767);
+                        e.value=scale_to_virtual(e.value,ai.minimum,ai.maximum,vmin,vmax);
+                    }
                 }
-                if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
-            } else if (e.type == EV_KEY) {
-                // PASS-THROUGH MURNI: tombol fisik tidak di-remap, difilter,
-                // atau diubah nilainya. Padfix hanya memproses ABS_X/Y/RX/RY.
-                last_key = e.code;
-                if (e.code <= KEY_MAX) pressed_key[e.code] = (e.value != 0);
-                if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
-            } else {
-                // Semua event selain empat sumbu analog dan HAT D-pad diteruskan apa adanya.
-                if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
+                if(e.code<=ABS_MAX&&virtual_abs[e.code]&&out_count<128)out_ev[out_count++]=e;
+            }else if(e.type==EV_KEY){
+                if(calibrating)continue;
+                last_key=e.code;
+                if(e.code<=KEY_MAX&&virtual_key[e.code]){
+                    pressed_key[e.code]=(e.value!=0);
+                    out_ev[out_count++]=e;
+                }
+            }else if(e.type==EV_SYN){
+                if(!calibrating&&out_count<128)out_ev[out_count++]=e;
+            }else if(!calibrating&&e.type==EV_MSC){
+                /* Metadata fisik bukan bagian dari virtual device; tidak diteruskan. */
             }
         }
-        emit_batch(out_ev, out_count);
+        if(!calibrating)emit_batch(out_ev,out_count);
     }
-    if (!running) ret = 0; else { printf("Gamepad terlepas.\n"); fflush(stdout); }
-    live_conn = 0; live_grab = 0;
-    ioctl(fd, EVIOCGRAB, 0);
-    pthread_mutex_lock(&um); ufd = -1; pthread_mutex_unlock(&um);
-    ioctl(u, UI_DEV_DESTROY); close(u); close(fd);
+    if(!running)ret=0;
+    else printf("[PHYSICAL] PHYSICAL_GAMEPAD_DISCONNECTED: sumber input terputus; virtual gamepad tetap aktif.\n");
+    release_virtual_inputs();
+    live_conn=0;live_grab=0;live_cal=0;live_state=4;
+    ioctl(fd,EVIOCGRAB,0);close(fd);
     return ret;
 }
 
@@ -386,8 +463,8 @@ static char *slurp(const char *path, size_t *len, size_t max) {
 static void send_status(int c) {
     static char b[6144]; int o = 0;
     #define A(...) o += snprintf(b + o, sizeof b - (size_t)o, __VA_ARGS__)
-    A("{\"running\":%s,\"connected\":%s,\"grabbed\":%s,\"calibrated\":%s,\"name\":\"%s\",\"margin\":%d,\"min_dz\":%d,\"kp\":%d,\"last_key\":%d,\"sens\":[",
-      running ? "true" : "false", live_conn ? "true" : "false", live_grab ? "true" : "false", live_cal ? "true" : "false", dev_name, cfg_margin, cfg_min_dz, cfg_kp, last_key);
+    A("{\"running\":%s,\"connected\":%s,\"grabbed\":%s,\"calibrated\":%s,\"virtualActive\":%s,\"state\":%d,\"name\":\"%s\",\"margin\":%d,\"min_dz\":%d,\"kp\":%d,\"last_key\":%d,\"sens\":[",
+      running ? "true" : "false", live_conn ? "true" : "false", live_grab ? "true" : "false", live_cal ? "true" : "false", virtual_active ? "true" : "false", live_state, dev_name, cfg_margin, cfg_min_dz, cfg_kp, last_key);
     for (int i = 0; i < 8; i++) A("%s%d", i ? "," : "", sens[i]);
     A("],\"offset\":[%d,%d,%d,%d],\"raw\":[%d,%d,%d,%d],\"fixed\":[%d,%d,%d,%d],\"center\":[%d,%d,%d,%d],\"deadzone\":[%d,%d,%d,%d],\"buttons\":[",
       cfg_offset[0], cfg_offset[1], cfg_offset[2], cfg_offset[3], live_raw[0], live_raw[1], live_raw[2], live_raw[3], live_fixed[0], live_fixed[1], live_fixed[2], live_fixed[3],
@@ -499,6 +576,11 @@ int main(int argc, char **argv) {
     printf("Dashboard: http://127.0.0.1:%d/?t=%s\n", PORT, token);
     fflush(stdout); // MainActivity reads this line from the startup log to open the tokenized URL.
     if (demo) { while (running) sleep(1); pthread_join(th, NULL); return 0; }
+    if (!demo && create_virtual_device() < 0) {
+        fprintf(stderr, "[VIRTUAL] gagal membuat virtual gamepad persisten; backend dihentikan.\n");
+        running=0; pthread_join(th,NULL); return 1;
+    }
+    live_state=0;
     int announced = 0;
     while (running) {
         int r = session(fixed, cal_ms, &announced);
