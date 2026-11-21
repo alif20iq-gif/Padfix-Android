@@ -47,6 +47,9 @@ static const char *www = "/data/local/tmp/padfix_index.html";
 static const char *match = "Pro Controller";
 static const int AX[4] = {ABS_X, ABS_Y, ABS_RX, ABS_RY};
 static unsigned char pressed_key[KEY_MAX + 1];
+static int capture_clicks = 0;
+static int64_t capture_last_click_ms = 0;
+static void capture_click_tick(void);
 
 static const char *config_path = "/data/local/tmp/padfix.conf";
 static void save_config(void) {
@@ -218,12 +221,18 @@ static int session(const char *fixed, int cal_ms, int *announced) {
             }
             have_cal = 1; calibrating = 0; live_cal = 1; fflush(stdout);
         }
+        capture_click_tick();
         struct pollfd p = {fd, POLLIN, 0};
-        int r = poll(&p, 1, calibrating ? 100 : 500);
+        int timeout = calibrating ? 100 : 500;
+        if (capture_clicks > 0) {
+            int64_t remain = 651 - (now_ms() - capture_last_click_ms);
+            if (remain < timeout) timeout = remain > 0 ? (int)remain : 0;
+        }
+        int r = poll(&p, 1, timeout);
         if (r < 0 && errno != EINTR) break;
         if (r <= 0) continue;
         if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) break;
-        struct input_event ev[64], out_ev[64];
+        struct input_event ev[64], out_ev[128];
         ssize_t n = read(fd, ev, sizeof ev);
         if (n < 0) { if (errno == EAGAIN || errno == EINTR) continue; break; }   // ENODEV = dilepas
         size_t out_count = 0;
@@ -269,9 +278,19 @@ static int session(const char *fixed, int cal_ms, int *announced) {
                 }
                 if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
             } else if (e.type == EV_KEY) {
-                // PASS-THROUGH MURNI: tombol fisik tidak di-remap, difilter,
-                // atau diubah nilainya. Padfix hanya memproses ABS_X/Y/RX/RY.
                 last_key = e.code;
+                // BTN_Z/Capture: 2 klik screenshot sistem, 3 klik membuka perekam layar TECNO.
+                // Tombol Capture tidak diteruskan ke aplikasi/game.
+                if (e.code == BTN_Z) {
+                    if (e.value == 1) {
+                        int64_t now = now_ms();
+                        capture_clicks = (capture_clicks == 0 || now - capture_last_click_ms > 650)
+                            ? 1 : capture_clicks + 1;
+                        capture_last_click_ms = now;
+                    }
+                    if (e.code <= KEY_MAX) pressed_key[e.code] = 0;
+                    continue;
+                }
                 if (e.code <= KEY_MAX) pressed_key[e.code] = (e.value != 0);
                 if (out_count < sizeof out_ev / sizeof out_ev[0]) out_ev[out_count++] = e;
             } else {
@@ -341,6 +360,66 @@ static int json_arr(const char *b, const char *key, int *v, int n) {
         v[i] = x; p += used; if (i < n - 1) { p = strchr(p, ','); if (!p) return 0; }
     }
     return 1;
+}
+
+static int run_system_screenshot(void) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execl("/system/bin/input", "input", "keyevent", "120", (char *)NULL);
+        _exit(127);
+    }
+    int st = 0;
+    for (int i = 0; i < 40; i++) {
+        pid_t w = waitpid(pid, &st, WNOHANG);
+        if (w == pid) return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : -1;
+        usleep(25000);
+    }
+    kill(pid, SIGKILL); waitpid(pid, NULL, 0);
+    return -1;
+}
+
+// Panggil TileService/aktivitas perekam bawaan TECNO agar indikator,
+// hitung mundur, dan notifikasi tetap dikelola oleh sistem.
+static int open_native_recorder(void) {
+    static const char script[] =
+        "SERVICES=$(cmd package query-services --components -a android.service.quicksettings.action.QS_TILE 2>/dev/null); "
+        "COMP=$(printf '%s\\n' \"$SERVICES\" | grep -i '^com\\.transsion\\.screenrecorder/' | head -n 1); "
+        "if [ -z \"$COMP\" ]; then COMP=$(printf '%s\\n' \"$SERVICES\" | grep -i 'screen.?record' | head -n 1); fi; "
+        "if [ -n \"$COMP\" ]; then "
+        "cmd statusbar click-tile \"$COMP\" >/dev/null 2>&1 && exit 0; "
+        "cmd statusbar add-tile \"$COMP\" >/dev/null 2>&1; "
+        "cmd statusbar click-tile \"$COMP\" >/dev/null 2>&1 && exit 0; "
+        "fi; "
+        "monkey -p com.transsion.screenrecorder 1 >/dev/null 2>&1";
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execl("/system/bin/sh", "sh", "-c", script, (char *)NULL);
+        _exit(127);
+    }
+    int st = 0;
+    for (int i = 0; i < 100; i++) {
+        pid_t w = waitpid(pid, &st, WNOHANG);
+        if (w == pid) return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : -1;
+        usleep(25000);
+    }
+    kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
+    return -1;
+}
+
+static void capture_click_tick(void) {
+    if (capture_clicks > 0 && now_ms() - capture_last_click_ms > 650) {
+        int clicks = capture_clicks;
+        capture_clicks = 0;
+        if (clicks == 2) {
+            if (run_system_screenshot() == 0) printf("[CAPTURE] SYSTEM_SCREENSHOT_TRIGGERED\\n");
+            else fprintf(stderr, "[CAPTURE] Gagal memicu screenshot sistem.\\n");
+        } else if (clicks >= 3 && open_native_recorder() < 0) {
+            fprintf(stderr, "[CAPTURE] Gagal membuka aplikasi perekam TECNO (com.transsion.screenrecorder).\\n");
+        }
+    }
 }
 
 static int take_shot(void) {
